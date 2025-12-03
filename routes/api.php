@@ -23,3 +23,4 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
 Route::get('/dlt/recommend', [DltController::class, 'recommend']);
 Route::get('/ssq/recommend', [SsqController::class, 'recommend']);
 Route::get('/lottery/settings', [LotterySettingApiController::class, 'index']);
+Route::get('/current-issue', [LotterySettingApiController::class, 'currentIssue']);
