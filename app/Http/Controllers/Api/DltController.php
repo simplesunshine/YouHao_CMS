@@ -18,30 +18,30 @@ class DltController extends Controller
     {
         $ip = $request->ip(); // 获取用户 IP
 
-        // if (empty($ip)) {
-        //     return response()->json([
-        //         'success' => false,
-        //         'message' => '无法获取用户 IP',
-        //     ], 400);
-        // }
+        if (empty($ip)) {
+            return response()->json([
+                'success' => false,
+                'message' => '无法获取用户 IP',
+            ], 400);
+        }
 
-        // 1️⃣ 查询该 IP 是否已有推荐数据
-        // $userData = LottoDltRecommendation::where('ip', $ip)
-        //     ->orderBy('id', 'desc')
-        //     ->get();
+        //1️⃣ 查询该 IP 是否已有推荐数据
+        $userData = LottoDltRecommendation::where('ip', $ip)
+            ->orderBy('id', 'desc')
+            ->get();
 
-        // if ($userData->isNotEmpty()) {
-        //     return response()->json([
-        //         'success' => true,
-        //         'data' => $userData,
-        //         'from' => 'user_existing_data',
-        //     ]);
-        // }
+        if ($userData->isNotEmpty()) {
+            return response()->json([
+                'success' => true,
+                'data' => $userData,
+                'from' => 'user_existing_data',
+            ]);
+        }
 
         // 2️⃣ 如果没有，随机获取 10 组未分配的推荐数据
         $randomData = LottoDltRecommendation::whereNull('ip')
             ->inRandomOrder()
-            ->take(1)
+            ->take(15)
             ->get();
 
         if ($randomData->isEmpty()) {
