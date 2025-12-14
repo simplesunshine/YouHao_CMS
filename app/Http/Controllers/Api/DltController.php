@@ -28,7 +28,7 @@ class DltController extends Controller
         //1️⃣ 查询该 IP 是否已有推荐数据
         $userData = LottoDltRecommendation::where('ip', $ip)
             ->orderBy('id', 'desc')
-            ->select(['front_numbers', 'back_numbers'])
+            ->select(['id','front_numbers', 'back_numbers'])
             ->get();
 
 
@@ -43,7 +43,7 @@ class DltController extends Controller
         // 2️⃣ 如果没有，随机获取 10 组未分配的推荐数据
         $randomData = LottoDltRecommendation::whereNull('ip')
             ->inRandomOrder()
-            ->select(['front_numbers', 'back_numbers'])
+            ->select(['id','front_numbers', 'back_numbers'])
             ->take(15)
             ->get();
 

@@ -28,7 +28,7 @@ class SsqController extends Controller
         // 1️⃣ 查询该 IP 是否已有推荐数据
         $userData = LottoSsqRecommendation::where('ip', $ip)
             ->orderBy('id', 'desc')
-            ->select(['front_numbers', 'back_numbers'])
+            ->select(['id','front_numbers', 'back_numbers'])
             ->get();
 
         if ($userData->isNotEmpty()) {
@@ -42,7 +42,7 @@ class SsqController extends Controller
         // 2️⃣ 如果没有，随机获取 10 组未分配的推荐数据
         $randomData = LottoSsqRecommendation::whereNull('ip')
             ->inRandomOrder()
-            ->select(['front_numbers', 'back_numbers'])
+            ->select(['id','front_numbers', 'back_numbers'])
             ->take(20)
             ->get();
 
