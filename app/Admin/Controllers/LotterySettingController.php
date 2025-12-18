@@ -26,6 +26,9 @@ protected function grid()
 {
     $grid = new Grid(new LotterySetting());
 
+    // 倒序查询（按 ID 倒序）
+    $grid->model()->orderBy('id', 'desc');
+
     $grid->column('id', 'ID')->sortable();
 
     $grid->column('type', '类型')->using([
