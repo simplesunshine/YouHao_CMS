@@ -26,5 +26,12 @@ Route::get('/dlt/download', [DltController::class, 'download']);
 Route::get('/ssq/recommend', [SsqController::class, 'recommend']);
 Route::get('/ssq/download', [SsqController::class, 'download']);
 
+
+//用户查询自选号码是否存在机选库
+Route::post('lotto/check-front-exists', 'Api\LottoCheckController@checkFrontExists');
+
+
 Route::get('/lottery/settings', [LotterySettingApiController::class, 'index']);
 Route::get('/current-issue', [LotterySettingApiController::class, 'currentIssue']);
+
+
