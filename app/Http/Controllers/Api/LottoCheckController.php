@@ -44,6 +44,21 @@ class LottoCheckController extends Controller
                             ->get(['id', 'created_at']);
         }
 
+        $ip = $request->ip();
+        // 记录 IP 查询行为（不影响主流程）
+        DB::table('user_lotto_queries')->updateOrInsert(
+            [
+                'lotto_type'  => $type === 'ssq' ? 1 : 2,
+                'red_numbers' => $frontStr,
+                'ip'          => $ip,
+            ],
+            [
+                'hit_library' => $count > 0 ? 1 : 0,
+                'user_agent'  => substr($request->userAgent(), 0, 255),
+                'created_at'  => now(),
+            ]
+        );
+
         return response()->json([
             'exists' => $count > 0,
             'count'  => $count,

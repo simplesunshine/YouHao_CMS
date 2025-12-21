@@ -28,7 +28,7 @@ Route::get('/ssq/download', [SsqController::class, 'download']);
 
 
 //用户查询自选号码是否存在机选库
-Route::post('lotto/check-front-exists', 'Api\LottoCheckController@checkFrontExists');
+Route::post('lotto/check-front-exists', 'Api\LottoCheckController@checkFrontExists')->middleware('throttle:30,1');
 
 
 Route::get('/lottery/settings', [LotterySettingApiController::class, 'index']);
