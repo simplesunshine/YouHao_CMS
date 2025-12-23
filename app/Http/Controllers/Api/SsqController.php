@@ -14,7 +14,7 @@ class SsqController extends Controller
      */
     public function recommend(Request $request)
     {
-        $ip = $request->ip(); // 获取用户 IP
+        $ip = $request->ip();
 
         if (empty($ip)) {
             return response()->json([
@@ -23,10 +23,9 @@ class SsqController extends Controller
             ], 400);
         }
 
-        // 1️⃣ 查询该 IP 已有多少注
+        // 每个 IP 每期最多 100 注
         $count = LottoSsqRecommendation::where('ip', $ip)->count();
-
-        $maxPerIp = 100; // 每个 IP 每期最多生成 100 注
+        $maxPerIp = 100;
         $remaining = $maxPerIp - $count;
 
         if ($remaining <= 0) {
@@ -37,35 +36,98 @@ class SsqController extends Controller
             ]);
         }
 
-        $take = min(5, $remaining); // 每次生成 5 注，剩余不足则生成剩余数量
+        $take = min(5, $remaining);
 
-        // 2️⃣ 查询未分配的随机号码
-        $randomData = LottoSsqRecommendation::whereNull('ip')
-            ->inRandomOrder()
-            ->select(['id','front_numbers','back_numbers'])
-            ->take($take)
-            ->get();
+        $prefs = $request->input('prefs');
+
+        // =========================
+        // 没有偏好 → 原逻辑
+        // =========================
+        if (empty($prefs)) {
+            $randomData = LottoSsqRecommendation::whereNull('ip')
+                ->inRandomOrder()
+                ->select(['id', 'front_numbers', 'back_numbers'])
+                ->take($take)
+                ->get();
+        } else {
+            // =========================
+            // 有偏好 → 全 SQL 条件
+            // =========================
+            $query = LottoSsqRecommendation::whereNull('ip');
+
+            // 第一位
+            if (!empty($prefs['first'])) {
+                $query->whereIn('front_1', (array)$prefs['first']);
+            }
+
+            // 最后一位
+            if (!empty($prefs['last'])) {
+                $query->whereIn('front_6', (array)$prefs['last']);
+            }
+
+            // 和值区间
+            if (!empty($prefs['sum']) && count($prefs['sum']) === 2) {
+                $query->whereBetween('front_sum', [
+                    (int)$prefs['sum'][0],
+                    (int)$prefs['sum'][1]
+                ]);
+            }
+
+            // 奇偶比（如 3:3）
+            if (!empty($prefs['odd_even'])) {
+                [$odd, $even] = explode(':', $prefs['odd_even']);
+                $query->where('odd_count', (int)$odd)
+                    ->where('even_count', (int)$even);
+            }
+
+            // 断区：指定区间号码数量 = 0
+            if (isset($prefs['zone']) && in_array($prefs['zone'], [1, 2, 3])) {
+                $query->where('zone' . $prefs['zone'] . '_count', 0);
+            }
+
+
+            // 包含指定红球（前提：你有 front_1 ~ front_6 字段）
+            if (!empty($prefs['include'])) {
+                $include = (array)$prefs['include'];
+
+                $query->where(function ($q) use ($include) {
+                    foreach ($include as $num) {
+                        $q->orWhere('front_1', $num)
+                        ->orWhere('front_2', $num)
+                        ->orWhere('front_3', $num)
+                        ->orWhere('front_4', $num)
+                        ->orWhere('front_5', $num)
+                        ->orWhere('front_6', $num);
+                    }
+                });
+            }
+
+            $randomData = $query
+                ->inRandomOrder()
+                ->take($take)
+                ->select(['id', 'front_numbers', 'back_numbers'])
+                ->get();
+        }
 
         if ($randomData->isEmpty()) {
             return response()->json([
                 'success' => false,
-                'message' => '号码池不足',
-            ], 404);
+                'message' => '没有符合条件的号码，请放宽偏好或取消偏好',
+            ]);
         }
 
-        // 3️⃣ 更新为当前 IP
+        // 绑定 IP
         $ids = $randomData->pluck('id')->toArray();
-        DB::table('lotto_ssq_recommendations')
-            ->whereIn('id', $ids)
-            ->update(['ip' => $ip]);
+        LottoSsqRecommendation::whereIn('id', $ids)->update(['ip' => $ip]);
 
-        // 4️⃣ 返回结果
         return response()->json([
             'success' => true,
             'data' => $randomData,
-            'remain' => $remaining - $take,
+            'remain' => $remaining - $randomData->count(),
         ]);
     }
+
+
 
     /**
      * 下载当前 IP + 当前期号全部号码（TXT）

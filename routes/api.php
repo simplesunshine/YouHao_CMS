@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\Api\DltController;
 use App\Http\Controllers\Api\SsqController;
 use App\Http\Controllers\Api\LotterySettingApiController;
+use App\Http\Controllers\Api\PreferenceController;
 
 /*
 |--------------------------------------------------------------------------
@@ -23,8 +24,9 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
 Route::get('/dlt/recommend', [DltController::class, 'recommend']);
 Route::get('/dlt/download', [DltController::class, 'download']);
 
-Route::get('/ssq/recommend', [SsqController::class, 'recommend']);
+Route::post('/ssq/recommend', [SsqController::class, 'recommend']);
 Route::get('/ssq/download', [SsqController::class, 'download']);
+
 
 
 //用户查询自选号码是否存在机选库
