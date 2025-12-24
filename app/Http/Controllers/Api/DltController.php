@@ -12,7 +12,7 @@ use App\Models\LottoDltRecommendation;
 class DltController extends Controller
 {
     /**
-     * 根据 IP 获取大乐透推荐号码
+     * 根据 IP 获取大乐透推荐号码（支持机选偏好）
      */
     public function recommend(Request $request)
     {
@@ -25,11 +25,11 @@ class DltController extends Controller
             ], 400);
         }
 
-        // 1️⃣ 查询该 IP 已有多少注
+        // 1️⃣ 当前 IP 已生成数量
         $count = LottoDltRecommendation::where('ip', $ip)->count();
+        $maxPerIp = 100;
 
-        // 2️⃣ 如果已达到 100 注，直接返回
-        if ($count >= 100) {
+        if ($count >= $maxPerIp) {
             return response()->json([
                 'success' => false,
                 'message' => '随机次数已用完',
@@ -37,39 +37,93 @@ class DltController extends Controller
             ]);
         }
 
-        // 3️⃣ 本次最多生成 5 注（但不能超过 100）
-        $limit = min(5, 100 - $count);
+        // 2️⃣ 本次最多生成 5 注
+        $take = min(5, $maxPerIp - $count);
 
-        // 4️⃣ 从“未分配 IP”的号码池里随机取
-        $randomData = LottoDltRecommendation::whereNull('ip')
+        // 3️⃣ 偏好参数
+        $prefs = $request->input('prefs');
+
+        // 4️⃣ 基础查询：只从未分配 IP 的号码池取
+        $query = LottoDltRecommendation::whereNull('ip');
+
+        // =========================
+        // 偏好条件（有才加）
+        // =========================
+        if ($prefs) {
+
+            // 第一位前区
+            if (!empty($prefs['first'])) {
+                $query->whereIn('front_1', $prefs['first']);
+            }
+
+            // 最后一位前区
+            if (!empty($prefs['last'])) {
+                $query->whereIn('front_5', $prefs['last']);
+            }
+
+            // 和值
+            if (!empty($prefs['sum']) && count($prefs['sum']) === 2) {
+                $query->whereBetween('front_sum', [
+                    $prefs['sum'][0],
+                    $prefs['sum'][1],
+                ]);
+            }
+
+            // 奇偶比（前区 5 个）
+            if (!empty($prefs['odd_even'])) {
+                [$odd, $even] = explode(':', $prefs['odd_even']);
+                $query->where('odd_count', $odd)
+                    ->where('even_count', $even);
+            }
+
+            // 断区（注意：断区 = 该区为 0）
+            if (isset($prefs['zone']) && in_array($prefs['zone'], [1, 2, 3])) {
+                $zoneField = 'zone' . $prefs['zone'] . '_count';
+                $query->where($zoneField, '=', 0);
+            }
+
+            // 包含号码（至少包含 1 个）
+            if (!empty($prefs['include'])) {
+                foreach ($prefs['include'] as $num) {
+                    $query->whereRaw(
+                        "FIND_IN_SET(?, front_numbers)",
+                        [$num]
+                    );
+                }
+            }
+        }
+
+        // 5️⃣ 按条件随机取
+        $randomData = $query
             ->inRandomOrder()
-            ->select(['id','front_numbers', 'back_numbers'])
-            ->take($limit)
+            ->select(['id', 'front_numbers', 'back_numbers'])
+            ->take($take)
             ->get();
 
         if ($randomData->isEmpty()) {
             return response()->json([
                 'success' => false,
-                'message' => '号码池已空',
-            ], 404);
+                'message' => '没有符合条件的号码，请放宽偏好或取消偏好',
+            ]);
         }
 
-        // 5️⃣ 把这批号码绑定到当前 IP
+        // 6️⃣ 绑定 IP
         $ids = $randomData->pluck('id')->toArray();
 
         DB::table('lotto_dlt_recommendations')
             ->whereIn('id', $ids)
             ->update(['ip' => $ip]);
 
-        // 6️⃣ 返回“本次新增的 5 注”
+        // 7️⃣ 返回
         return response()->json([
             'success' => true,
             'data'    => $randomData,
-            'added'   => $limit,
-            'total'   => $count + $limit,
-            'remain'  => 100 - ($count + $limit),
+            'added'   => count($randomData),
+            'total'   => $count + count($randomData),
+            'remain'  => $maxPerIp - ($count + count($randomData)),
         ]);
     }
+
 
     public function download(Request $request)
     {

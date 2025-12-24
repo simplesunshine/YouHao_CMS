@@ -21,7 +21,7 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::get('/dlt/recommend', [DltController::class, 'recommend']);
+Route::post('/dlt/recommend', [DltController::class, 'recommend']);
 Route::get('/dlt/download', [DltController::class, 'download']);
 
 Route::post('/ssq/recommend', [SsqController::class, 'recommend']);
