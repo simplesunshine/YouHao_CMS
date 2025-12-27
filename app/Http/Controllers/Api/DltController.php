@@ -82,14 +82,19 @@ class DltController extends Controller
                 $query->where($zoneField, '=', 0);
             }
 
-            // 包含号码（至少包含 1 个）
+            // 包含指定红球（前提：你有 front_1 ~ front_6 字段）
             if (!empty($prefs['include'])) {
-                foreach ($prefs['include'] as $num) {
-                    $query->whereRaw(
-                        "FIND_IN_SET(?, front_numbers)",
-                        [$num]
-                    );
-                }
+                $include = (array)$prefs['include'];
+
+                $query->where(function ($q) use ($include) {
+                    foreach ($include as $num) {
+                        $q->orWhere('front_1', $num)
+                        ->orWhere('front_2', $num)
+                        ->orWhere('front_3', $num)
+                        ->orWhere('front_4', $num)
+                        ->orWhere('front_5', $num);
+                    }
+                });
             }
         }
 
