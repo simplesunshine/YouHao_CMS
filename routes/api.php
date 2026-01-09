@@ -5,7 +5,7 @@ use App\Http\Controllers\Api\DltController;
 use App\Http\Controllers\Api\SsqController;
 use App\Http\Controllers\Api\LotterySettingApiController;
 use App\Http\Controllers\Api\PreferenceController;
-
+use App\Http\Controllers\Api\OpenResultController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -35,5 +35,15 @@ Route::post('lotto/check-front-exists', 'Api\LottoCheckController@checkFrontExis
 
 Route::get('/lottery/settings', [LotterySettingApiController::class, 'index']);
 Route::get('/current-issue', [LotterySettingApiController::class, 'currentIssue']);
+
+Route::get('/open-result/latest', [OpenResultController::class, 'latest']);
+
+Route::get('/ssq-history', [OpenResultController::class, 'ssqHistory']);
+Route::get('/dlt-history', [OpenResultController::class, 'dltHistory']);
+
+
+
+
+
 
 

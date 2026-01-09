@@ -14,5 +14,11 @@ Route::group([
 
     $router->get('/', 'HomeController@index');
     $router->resource('lotto-setting', 'LotterySettingController');
+    // 新增：历史开奖
+    $router->get('dlt-history', 'DltLottoHistoryController@index');
+    $router->resource('dlt-history', DltLottoHistoryController::class);
+    $router->get('ssq-history', 'SsqLottoHistoryController@index');
+    $router->resource('ssq-history', SsqLottoHistoryController::class);
+
 
 });

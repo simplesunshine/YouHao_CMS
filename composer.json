@@ -12,6 +12,7 @@
         "barryvdh/laravel-cors": "^0.11",
         "dcat/laravel-admin": "2.*",
         "fideloper/proxy": "^4.4",
+        "guzzlehttp/guzzle": "^7.10",
         "laravel/framework": "^6.20.26",
         "laravel/tinker": "^2.5"
     },
