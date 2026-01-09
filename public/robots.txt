@@ -1,2 +1,12 @@
+# 针对所有搜索引擎蜘蛛
 User-agent: *
+
+# 允许抓取整个网站
 Disallow:
+
+# Sitemap 地址
+Sitemap: https://youhaozhijia.com/sitemap.xml
+
+# 可选：指定特定路径规则（如果未来有不希望抓取的目录）
+# Disallow: /admin/
+# Disallow: /private/
