@@ -140,6 +140,24 @@ class SsqController extends Controller
 
             case 'connect':
             case 'odd_even':
+                // 奇偶比模块
+                if (empty($prefs['odd_even'])) {
+                    return response()->json(['success'=>false,'message'=>'请选择奇偶比'], 400);
+                }
+
+                // 拆分奇偶比
+                [$odd, $even] = explode(':', $prefs['odd_even']);
+                $odd = (int)$odd;
+                $even = (int)$even;
+
+                $query = LottoSsqRecommendation::whereNull('ip')
+                    ->where('odd_count', $odd)
+                    ->where('even_count', $even);
+
+                $randomData = $query->inRandomOrder()->take($take)
+                    ->select(['id', 'front_numbers', 'back_numbers'])
+                    ->get();
+                break;
             case 'first_last':
                 $prefs = $request->input('prefs', []);
                 $query = LottoSsqRecommendation::whereNull('ip');
