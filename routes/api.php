@@ -24,7 +24,8 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
 Route::post('/dlt/recommend', [DltController::class, 'recommend']);
 Route::get('/dlt/download', [DltController::class, 'download']);
 
-Route::post('/ssq/recommend', [SsqController::class, 'recommend']);
+//双色球统一机选接口
+Route::post('/ssq/pick', [SsqController::class, 'pick']);
 Route::get('/ssq/download', [SsqController::class, 'download']);
 
 
