@@ -105,6 +105,10 @@ class DltLottoHistoryController extends AdminController
             // 后区
             $form->number('back1', '后区1')->required();
             $form->number('back2', '后区2')->required();
+
+            // 新增字段，非必填
+            $form->number('match_red', '匹配红球')->min(0);
+            $form->number('match_blue', '匹配蓝球')->min(0);
         });
     }
 
