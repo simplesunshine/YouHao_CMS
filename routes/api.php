@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\SsqController;
 use App\Http\Controllers\Api\LotterySettingApiController;
 use App\Http\Controllers\Api\PreferenceController;
 use App\Http\Controllers\Api\OpenResultController;
+use App\Http\Controllers\Api\NewsController;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -41,6 +43,11 @@ Route::get('/open-result/latest', [OpenResultController::class, 'latest']);
 
 Route::get('/ssq-history', [OpenResultController::class, 'ssqHistory']);
 Route::get('/dlt-history', [OpenResultController::class, 'dltHistory']);
+
+
+Route::get('/news/ssq', [NewsController::class, 'ssq']);
+Route::get('/news/dlt', [NewsController::class, 'dlt']);
+
 
 
 
