@@ -85,6 +85,7 @@ class SsqLottoHistoryController extends AdminController
         return Form::make(new SsqLottoHistory(), function (Form $form) {
 
             $form->text('issue', '期号')->required();
+
             // 红球
             $form->number('front1', '红球1')->required();
             $form->number('front2', '红球2')->required();
@@ -95,6 +96,26 @@ class SsqLottoHistoryController extends AdminController
 
             // 蓝球
             $form->number('back', '蓝球')->required();
+
+            // 保存前自动计算
+            $form->saving(function (Form $form) {
+
+                $fronts = [
+                    (int)$form->front1,
+                    (int)$form->front2,
+                    (int)$form->front3,
+                    (int)$form->front4,
+                    (int)$form->front5,
+                    (int)$form->front6,
+                ];
+
+                // 红球和值
+                $form->front_sum = array_sum($fronts);
+
+                // 跨度 = 最大值 - 最小值
+                $form->span = max($fronts) - min($fronts);
+            });
         });
     }
+
 }
