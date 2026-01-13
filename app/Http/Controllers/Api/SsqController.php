@@ -22,7 +22,7 @@ class SsqController extends Controller
 
         // 每个 IP 每期最多 100 注
         $count = LottoSsqRecommendation::where('ip', $ip)->count();
-        $maxPerIp = 100;
+        $maxPerIp = 500;
         $remaining = $maxPerIp - $count;
 
         if ($remaining <= 0) {
