@@ -12,6 +12,8 @@ class SsqLottoHistory extends Model
         'issue',
         'front1','front2','front3','front4','front5','front6',
         'back',
+        'front_sum',
+        'span'
     ];
 
     public $timestamps = false;
