@@ -31,6 +31,9 @@ Route::post('/ssq/pick', [SsqController::class, 'pick']);
 Route::get('/ssq/download', [SsqController::class, 'download']);
 
 
+//大乐透统一机选接口
+Route::post('/dlt/pick', [DltController::class, 'pick']);
+
 
 //用户查询自选号码是否存在机选库
 Route::post('lotto/check-front-exists', 'Api\LottoCheckController@checkFrontExists')->middleware('throttle:30,1');
