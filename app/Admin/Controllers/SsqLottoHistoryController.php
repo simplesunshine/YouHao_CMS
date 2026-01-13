@@ -97,6 +97,10 @@ class SsqLottoHistoryController extends AdminController
             // 蓝球
             $form->number('back', '蓝球')->required();
 
+            // 新增字段，非必填
+            $form->number('match_red', '匹配红球')->min(0);
+            $form->number('match_blue', '匹配蓝球')->min(0);
+
             // 保存前自动计算
             $form->saving(function (Form $form) {
 
