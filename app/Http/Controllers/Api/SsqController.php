@@ -188,6 +188,40 @@ class SsqController extends Controller
                     ->get();
                 break;
 
+            case 'dan_only':
+                $prefs = $request->input('prefs', []);
+                $dan = $prefs['dan'] ?? [];
+
+                // 1️⃣ 校验胆码
+                if (count($dan) < 1 || count($dan) > 5) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '胆码数量必须为 1-5 个'
+                    ], 400);
+                }
+
+                // 2️⃣ 查询：必须包含所有胆码
+                $query = LottoSsqRecommendation::whereNull('ip');
+
+                foreach ($dan as $num) {
+                    $query->where(function ($q) use ($num) {
+                        $q->orWhere('front_1', $num)
+                        ->orWhere('front_2', $num)
+                        ->orWhere('front_3', $num)
+                        ->orWhere('front_4', $num)
+                        ->orWhere('front_5', $num)
+                        ->orWhere('front_6', $num);
+                    });
+                }
+
+                $randomData = $query
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->select(['id', 'front_numbers', 'back_numbers'])
+                    ->get();
+
+                break;
+
 
             default:
                 // 默认普通机选
