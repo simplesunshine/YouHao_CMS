@@ -178,6 +178,17 @@ class SsqController extends Controller
                     ->get();
                 break;
 
+            case 'first_advantage':
+                // 首红优势机选：首红 1-5
+                $randomData = LottoSsqRecommendation::whereNull('ip')
+                    ->whereBetween('front_1', [1, 5])
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->select(['id', 'front_numbers', 'back_numbers'])
+                    ->get();
+                break;
+
+
             default:
                 // 默认普通机选
                 $randomData = LottoSsqRecommendation::whereNull('ip')
