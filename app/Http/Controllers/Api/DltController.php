@@ -115,6 +115,56 @@ class DltController extends Controller
                     ->get();
                 break;
 
+            case 'dan_only':
+                // 🎯 大乐透前区【仅胆码】机选
+                $frontDan = $prefs['front_dan'] ?? [];
+
+                if (empty($frontDan) || !is_array($frontDan)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '请至少选择 1 个前区胆码'
+                    ], 400);
+                }
+
+                if (count($frontDan) > 4) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '前区胆码最多 4 个'
+                    ], 400);
+                }
+
+                $query = LottoDltRecommendation::whereNull('ip');
+
+                /**
+                 * ✅ 核心逻辑：
+                 * 每一个胆码，都必须出现在 front_1 ~ front_5 中
+                 */
+                $query->where(function ($q) use ($frontDan) {
+                    foreach ($frontDan as $num) {
+                        $q->where(function ($qq) use ($num) {
+                            $qq->where('front_1', $num)
+                            ->orWhere('front_2', $num)
+                            ->orWhere('front_3', $num)
+                            ->orWhere('front_4', $num)
+                            ->orWhere('front_5', $num);
+                        });
+                    }
+                });
+
+                $randomData = $query->inRandomOrder()
+                    ->take($take)
+                    ->select(['id', 'front_numbers', 'back_numbers'])
+                    ->get();
+                break;
+            case 'first_advantage':
+                // 🎯 大乐透【首红优势机选】：前区首位 1–7
+                $randomData = LottoDltRecommendation::whereNull('ip')
+                    ->whereBetween('front_1', [1, 7])
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->select(['id', 'front_numbers', 'back_numbers'])
+                    ->get();
+                break;
             default:
                 // 其他模块默认普通机选
                 $randomData = LottoDltRecommendation::whereNull('ip')
