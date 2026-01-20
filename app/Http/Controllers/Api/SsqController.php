@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 class SsqController extends Controller
 {
     /**
-     * 通用机选接口，根据 type 区分模块
+     * 通用机选接口
      */
     public function pick(Request $request)
     {
@@ -20,7 +20,7 @@ class SsqController extends Controller
             return response()->json(['success' => false, 'message' => '获取失败'], 400);
         }
 
-        // 每个 IP 每期最多 500 注
+        // 每个 IP 最多 500 注
         $count = LottoSsqRecommendation::where('ip', $ip)->count();
         $maxPerIp = 500;
         $remaining = $maxPerIp - $count;
@@ -33,197 +33,204 @@ class SsqController extends Controller
             ]);
         }
 
-        $take = min(5, $remaining);
-        $type = $request->input('type', 'normal'); // 默认普通机选
+        $take  = min(5, $remaining);
+        $type  = $request->input('type', 'normal');
         $prefs = $request->input('prefs', []);
         $randomData = collect();
 
-        $weights = [5,4,3,2,1]; // 权重档位，从高到低
+        // ⚠️ 权重档位（只给 normal 用）
+        $weights = [5,4,3,2,1];
 
         switch ($type) {
+
+            /**
+             * =========================
+             * 1️⃣ 普通机选（唯一加权模块）
+             * =========================
+             */
             case 'normal':
                 foreach ($weights as $w) {
                     $results = LottoSsqRecommendation::whereNull('ip')
-                                ->where('weight', $w)
-                                ->inRandomOrder()
-                                ->take($take)
-                                ->select(['id','front_numbers','back_numbers'])
-                                ->get();
+                        ->where('weight', $w)
+                        ->inRandomOrder()
+                        ->take($take)
+                        ->select(['id','front_numbers','back_numbers'])
+                        ->get();
+
                     if ($results->isNotEmpty()) {
                         $randomData = $results;
-                        break; // 单档抽取，找到直接返回
+                        break; // 命中即停
                     }
                 }
                 break;
 
+            /**
+             * =========================
+             * 2️⃣ 首红优势（不加权）
+             * =========================
+             */
             case 'first_advantage':
-                foreach ($weights as $w) {
-                    $results = LottoSsqRecommendation::whereNull('ip')
-                                ->whereBetween('front_1', [1,7])
-                                ->where('weight', $w)
-                                ->inRandomOrder()
-                                ->take($take)
-                                ->select(['id','front_numbers','back_numbers'])
-                                ->get();
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
-                    }
-                }
+                $randomData = LottoSsqRecommendation::whereNull('ip')
+                    ->whereBetween('front_1', [1,5])
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->select(['id','front_numbers','back_numbers'])
+                    ->get();
                 break;
 
+            /**
+             * =========================
+             * 3️⃣ 连号（不加权）
+             * =========================
+             */
             case 'connect':
                 $consecutive = (int)($prefs['serial'] ?? 0);
                 if ($consecutive <= 0) {
                     return response()->json(['success'=>false,'message'=>'请选择连号个数'],400);
                 }
-                foreach ($weights as $w) {
-                    $results = LottoSsqRecommendation::whereNull('ip')
-                                ->where('consecutive_count', $consecutive)
-                                ->where('weight', $w)
-                                ->inRandomOrder()
-                                ->take($take)
-                                ->select(['id','front_numbers','back_numbers'])
-                                ->get();
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
-                    }
-                }
+
+                $randomData = LottoSsqRecommendation::whereNull('ip')
+                    ->where('consecutive_count', $consecutive)
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->select(['id','front_numbers','back_numbers'])
+                    ->get();
                 break;
 
+            /**
+             * =========================
+             * 4️⃣ 胆码（不加权）
+             * =========================
+             */
             case 'dan_only':
                 $dan = (array)($prefs['dan'] ?? []);
-                if (empty($dan)) {
-                    return response()->json(['success'=>false,'message'=>'请至少选择 1 个胆码'],400);
+                if (count($dan) < 1 || count($dan) > 5) {
+                    return response()->json([
+                        'success'=>false,
+                        'message'=>'胆码数量必须 1–5 个'
+                    ],400);
                 }
-                if (count($dan) > 5) {
-                    return response()->json(['success'=>false,'message'=>'胆码最多 5 个'],400);
+
+                $query = LottoSsqRecommendation::whereNull('ip');
+                foreach ($dan as $num) {
+                    $query->where(function ($q) use ($num) {
+                        $q->orWhere('front_1',$num)
+                          ->orWhere('front_2',$num)
+                          ->orWhere('front_3',$num)
+                          ->orWhere('front_4',$num)
+                          ->orWhere('front_5',$num)
+                          ->orWhere('front_6',$num);
+                    });
                 }
-                foreach ($weights as $w) {
-                    $query = LottoSsqRecommendation::whereNull('ip')->where('weight', $w);
-                    foreach ($dan as $num) {
-                        $query->where(function($q) use ($num){
-                            $q->where('front_1',$num)
-                              ->orWhere('front_2',$num)
-                              ->orWhere('front_3',$num)
-                              ->orWhere('front_4',$num)
-                              ->orWhere('front_5',$num)
-                              ->orWhere('front_6',$num);
-                        });
-                    }
-                    $results = $query->inRandomOrder()->take($take)
-                                ->select(['id','front_numbers','back_numbers'])
-                                ->get();
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
-                    }
-                }
+
+                $randomData = $query->inRandomOrder()
+                    ->take($take)
+                    ->select(['id','front_numbers','back_numbers'])
+                    ->get();
                 break;
 
+            /**
+             * =========================
+             * 5️⃣ 排除历史和值（不加权）
+             * =========================
+             */
             case 'history_sum':
                 $excludeCount = (int)$request->input('exclude',0);
                 $excludeSums = [];
+
                 if ($excludeCount > 0) {
                     $excludeSums = DB::table('ssq_lotto_history')
-                                    ->orderByDesc('issue')
-                                    ->limit($excludeCount)
-                                    ->pluck('front_sum')
-                                    ->toArray();
+                        ->orderByDesc('issue')
+                        ->limit($excludeCount)
+                        ->pluck('front_sum')
+                        ->toArray();
                 }
-                foreach ($weights as $w) {
-                    $query = LottoSsqRecommendation::whereNull('ip')->where('weight',$w);
-                    if (!empty($excludeSums)) $query->whereNotIn('front_sum',$excludeSums);
-                    $results = $query->inRandomOrder()->take($take)
-                                ->select(['id','front_numbers','back_numbers'])
-                                ->get();
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
-                    }
+
+                $query = LottoSsqRecommendation::whereNull('ip');
+                if (!empty($excludeSums)) {
+                    $query->whereNotIn('front_sum', $excludeSums);
                 }
+
+                $randomData = $query->inRandomOrder()
+                    ->take($take)
+                    ->select(['id','front_numbers','back_numbers'])
+                    ->get();
                 break;
 
+            /**
+             * =========================
+             * 6️⃣ 排除跨度（不加权）
+             * =========================
+             */
             case 'history_span':
                 $exclude = (array)$request->input('exclude',[]);
-                foreach ($weights as $w) {
-                    $query = LottoSsqRecommendation::whereNull('ip')->where('weight',$w);
-                    if (!empty($exclude)) $query->whereNotIn('span',$exclude);
-                    $results = $query->inRandomOrder()->take($take)
-                                ->select(['id','front_numbers','back_numbers'])
-                                ->get();
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
-                    }
+                $query = LottoSsqRecommendation::whereNull('ip');
+
+                if (!empty($exclude)) {
+                    $query->whereNotIn('span', $exclude);
                 }
+
+                $randomData = $query->inRandomOrder()
+                    ->take($take)
+                    ->select(['id','front_numbers','back_numbers'])
+                    ->get();
                 break;
 
+            /**
+             * =========================
+             * 7️⃣ 奇偶比（不加权）
+             * =========================
+             */
             case 'odd_even':
                 if (empty($prefs['odd_even'])) {
-                    return response()->json(['success'=>false,'message'=>'请选择奇偶比'], 400);
+                    return response()->json(['success'=>false,'message'=>'请选择奇偶比'],400);
                 }
                 [$odd,$even] = explode(':',$prefs['odd_even']);
-                foreach ($weights as $w) {
-                    $results = LottoSsqRecommendation::whereNull('ip')
-                                ->where('weight',$w)
-                                ->where('odd_count',(int)$odd)
-                                ->where('even_count',(int)$even)
-                                ->inRandomOrder()
-                                ->take($take)
-                                ->select(['id','front_numbers','back_numbers'])
-                                ->get();
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
-                    }
-                }
+
+                $randomData = LottoSsqRecommendation::whereNull('ip')
+                    ->where('odd_count',(int)$odd)
+                    ->where('even_count',(int)$even)
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->select(['id','front_numbers','back_numbers'])
+                    ->get();
                 break;
 
+            /**
+             * =========================
+             * 8️⃣ 首尾号（不加权）
+             * =========================
+             */
             case 'first_last':
-                $first = $prefs['first'] ?? null;
-                $last  = $prefs['last'] ?? null;
-                foreach ($weights as $w) {
-                    $query = LottoSsqRecommendation::whereNull('ip')->where('weight',$w);
-                    if ($first !== null) $query->where('front_1',$first);
-                    if ($last !== null)  $query->where('front_6',$last);
-                    $results = $query->inRandomOrder()->take($take)
-                                ->select(['id','front_numbers','back_numbers'])
-                                ->get();
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
-                    }
-                }
+                $query = LottoSsqRecommendation::whereNull('ip');
+                if (!empty($prefs['first'])) $query->where('front_1',$prefs['first']);
+                if (!empty($prefs['last']))  $query->where('front_6',$prefs['last']);
+
+                $randomData = $query->inRandomOrder()
+                    ->take($take)
+                    ->select(['id','front_numbers','back_numbers'])
+                    ->get();
                 break;
 
             default:
-                foreach ($weights as $w) {
-                    $results = LottoSsqRecommendation::whereNull('ip')
-                                ->where('weight',$w)
-                                ->inRandomOrder()
-                                ->take($take)
-                                ->select(['id','front_numbers','back_numbers'])
-                                ->get();
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
-                    }
-                }
-                break;
+                return response()->json([
+                    'success'=>false,
+                    'message'=>'未知机选类型'
+                ],400);
         }
 
         if ($randomData->isEmpty()) {
             return response()->json([
                 'success'=>false,
-                'message'=>'没有符合条件的号码，请放宽条件或等待更新',
+                'message'=>'没有符合条件的号码'
             ]);
         }
 
         // 绑定 IP
-        $ids = $randomData->pluck('id')->toArray();
-        LottoSsqRecommendation::whereIn('id',$ids)->update(['ip'=>$ip]);
+        LottoSsqRecommendation::whereIn(
+            'id',
+            $randomData->pluck('id')->toArray()
+        )->update(['ip'=>$ip]);
 
         return response()->json([
             'success'=>true,
@@ -233,7 +240,7 @@ class SsqController extends Controller
     }
 
     /**
-     * 下载当前 IP + 当前期号全部号码（TXT）
+     * 下载当前 IP 的号码
      */
     public function download(Request $request)
     {
@@ -247,25 +254,23 @@ class SsqController extends Controller
             ->orderBy('id')
             ->get();
 
-        if ($list->isEmpty()){
+        if ($list->isEmpty()) {
             return response()->json(['success'=>false,'message'=>'暂无可下载数据'],404);
         }
 
         $content = '';
-        foreach($list as $index=>$row){
+        foreach ($list as $i=>$row) {
             $content .= sprintf(
                 "%02d. 红球:%s | 蓝球:%s\n",
-                $index+1,
+                $i+1,
                 $row->front_numbers,
                 $row->back_numbers
             );
         }
 
-        $filename = "ssq.txt";
-
         return response($content,200,[
             'Content-Type'=>'text/plain; charset=UTF-8',
-            'Content-Disposition'=>"attachment; filename=\"$filename\""
+            'Content-Disposition'=>'attachment; filename="ssq.txt"'
         ]);
     }
 }
