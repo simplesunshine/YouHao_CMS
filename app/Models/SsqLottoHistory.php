@@ -13,8 +13,32 @@ class SsqLottoHistory extends Model
         'front1','front2','front3','front4','front5','front6',
         'back',
         'front_sum',
-        'span'
+        'span',
+        'weights'
     ];
 
     public $timestamps = false;
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::saving(function ($model) {
+
+            $fronts = [
+                (int)$model->front1,
+                (int)$model->front2,
+                (int)$model->front3,
+                (int)$model->front4,
+                (int)$model->front5,
+                (int)$model->front6,
+            ];
+
+            // 红球和值
+            $model->front_sum = array_sum($fronts);
+
+            // 跨度
+            $model->span = max($fronts) - min($fronts);
+        });
+    }
 }

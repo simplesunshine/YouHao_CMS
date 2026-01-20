@@ -135,7 +135,7 @@ class DltController extends Controller
                     $excludeSums = DB::table('dlt_lotto_history')
                                     ->orderByDesc('issue')
                                     ->limit($excludeCount)
-                                    ->pluck('sum')
+                                    ->pluck('front_sum')
                                     ->toArray();
                 }
                 foreach ($weights as $w) {

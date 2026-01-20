@@ -63,6 +63,8 @@ class SsqLottoHistoryController extends AdminController
             '>{$this->back}</span>";
         });
 
+        $grid->column('weights', '权重');
+
         $grid->model()->orderByDesc('issue');
 
         // 开启添加 / 编辑 / 删除按钮
@@ -79,7 +81,6 @@ class SsqLottoHistoryController extends AdminController
         return $grid;
     }
 
-    // 添加 / 编辑表单
     protected function form()
     {
         return Form::make(new SsqLottoHistory(), function (Form $form) {
@@ -97,13 +98,16 @@ class SsqLottoHistoryController extends AdminController
             // 蓝球
             $form->number('back', '蓝球')->required();
 
-            // 新增字段，非必填
+            // 新增字段，非必填（为了能被保存，使用 hidden 隐藏在表单里）
+            $form->hidden('front_sum', '红球和值');
+            $form->hidden('span', '跨度');
+
             $form->number('match_red', '匹配红球')->min(0);
             $form->number('match_blue', '匹配蓝球')->min(0);
+            $form->number('weights', '权重');
 
             // 保存前自动计算
             $form->saving(function (Form $form) {
-
                 $fronts = [
                     (int)$form->front1,
                     (int)$form->front2,
@@ -113,13 +117,19 @@ class SsqLottoHistoryController extends AdminController
                     (int)$form->front6,
                 ];
 
-                // 红球和值
-                $form->front_sum = array_sum($fronts);
+                $sum = array_sum($fronts);
+                $span = max($fronts) - min($fronts);
 
-                // 跨度 = 最大值 - 最小值
-                $form->span = max($fronts) - min($fronts);
+                // 方法 A：直接给模型赋值（推荐）
+                $form->model()->front_sum = $sum;
+                $form->model()->span = $span;
+
+                // （可选）方法 B：如果你更喜欢让表单字段带入，可以使用：
+                // $form->front_sum = $sum;
+                // $form->span = $span;
             });
         });
     }
+
 
 }

@@ -72,6 +72,7 @@ class DltLottoHistoryController extends AdminController
         });
 
 
+        $grid->column('weights', '权重');
 
         $grid->model()->orderByDesc('issue');
 
@@ -86,7 +87,6 @@ class DltLottoHistoryController extends AdminController
 
         return $grid;
     }
-
 
 
     protected function form()
@@ -106,10 +106,16 @@ class DltLottoHistoryController extends AdminController
             $form->number('back1', '后区1')->required();
             $form->number('back2', '后区2')->required();
 
-            // 新增字段，非必填
+            // 自动计算字段（隐藏）
+            $form->hidden('front_sum');
+            $form->hidden('span');
+
+            // 统计字段（如果你后面要用）
             $form->number('match_red', '匹配红球')->min(0);
             $form->number('match_blue', '匹配蓝球')->min(0);
+            $form->number('weights', '权重');
         });
     }
+
 
 }
