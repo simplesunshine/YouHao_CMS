@@ -38,8 +38,6 @@ class DltController extends Controller
         $prefs = $request->input('prefs', []);
         $randomData = collect();
 
-        // ⚠️ 权重档位（只给 normal 用）
-        $weights = [5,4,3,2,1];
 
         switch ($type) {
 
@@ -49,7 +47,22 @@ class DltController extends Controller
              * =========================
              */
             case 'normal':
-                foreach ($weights as $w) {
+
+                // 第一阶段：权重 4 或 5（同级池，随便取）
+                $results = LottoDltRecommendation::whereNull('ip')
+                    ->whereIn('weight', [4, 5])
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->select(['id','front_numbers','back_numbers'])
+                    ->get();
+
+                if ($results->isNotEmpty()) {
+                    $randomData = $results;
+                    break;
+                }
+
+                // 第二阶段：再依次降级
+                foreach ([3, 2, 1] as $w) {
                     $results = LottoDltRecommendation::whereNull('ip')
                         ->where('weight', $w)
                         ->inRandomOrder()
@@ -59,10 +72,12 @@ class DltController extends Controller
 
                     if ($results->isNotEmpty()) {
                         $randomData = $results;
-                        break; // 命中即停
+                        break;
                     }
                 }
+
                 break;
+
 
             /**
              * =========================
