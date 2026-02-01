@@ -290,4 +290,48 @@ class SsqController extends Controller
             'Content-Disposition'=>'attachment; filename="ssq.txt"'
         ]);
     }
+
+
+    /**
+     * 双色球号码分布统计接口
+     */
+    public function numberDistribution(Request $request)
+    {
+        $periods = (int) $request->query('periods', 50); // 默认近50期
+
+        // 获取最近 $periods 期号
+        $issues = DB::table('ssq_lotto_history')
+            ->orderByDesc('issue')
+            ->limit($periods)
+            ->pluck('issue')
+            ->toArray();
+
+        if (empty($issues)) {
+            return response()->json(['code' => 200, 'data' => []]);
+        }
+
+        $positions = ['front1', 'front2', 'front3', 'front4', 'front5', 'front6']; // 前五红球+蓝球/第六位
+        $result = [];
+
+        foreach ($positions as $pos) {
+            // 获取该位置每个数字出现次数
+            $counts = DB::table('ssq_lotto_history')
+                ->select($pos . ' as number', DB::raw('COUNT(*) as count'))
+                ->whereIn('issue', $issues)
+                ->groupBy($pos)
+                ->orderBy($pos)
+                ->get()
+                ->toArray();
+
+            // 转成数组
+            $result[] = array_map(function($item) {
+                return ['number' => $item->number, 'count' => $item->count];
+            }, $counts);
+        }
+
+        return response()->json([
+            'code' => 200,
+            'data' => $result
+        ]);
+    }
 }
