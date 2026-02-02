@@ -52,6 +52,8 @@ Route::get('/news/ssq', [NewsController::class, 'ssq']);
 Route::get('/news/dlt', [NewsController::class, 'dlt']);
 
 Route::get('/ssq/number-distribution', [SsqController::class, 'numberDistribution']);
+Route::get('/dlt/number-distribution', [DltController::class, 'numberDistribution']);
+
 
 
 

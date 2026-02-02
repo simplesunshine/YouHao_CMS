@@ -287,4 +287,89 @@ class DltController extends Controller
             'Content-Disposition'=>'attachment; filename="dlt.txt"'
         ]);
     }
+
+    /**
+     * 大乐透号码分布分析
+     * 前区 5 位 + 后区 2 位
+     */
+    public function numberDistribution(Request $request)
+    {
+        $periods = (int) $request->input('periods', 50);
+
+        if ($periods <= 0) {
+            return response()->json([
+                'code' => 400,
+                'message' => '期数不合法'
+            ]);
+        }
+
+        if ($periods > 3000) {
+            $periods = 3000;
+        }
+
+        // 最近 N 期
+        $history = DB::table('dlt_lotto_history')
+            ->orderByDesc('issue')
+            ->limit($periods)
+            ->get([
+                'front1','front2','front3','front4','front5',
+                'back1','back2'
+            ]);
+
+        if ($history->isEmpty()) {
+            return response()->json([
+                'code' => 200,
+                'data' => [
+                    'front' => [[], [], [], [], []],
+                    'back'  => [[], []]
+                ]
+            ]);
+        }
+
+        // 初始化统计容器
+        $front = array_fill(0, 5, []);
+        $back  = array_fill(0, 2, []);
+
+        foreach ($history as $row) {
+
+            // 前区
+            for ($i = 1; $i <= 5; $i++) {
+                $num = (int) $row->{'front'.$i};
+                if (!isset($front[$i-1][$num])) {
+                    $front[$i-1][$num] = 0;
+                }
+                $front[$i-1][$num]++;
+            }
+
+            // 后区
+            for ($i = 1; $i <= 2; $i++) {
+                $num = (int) $row->{'back'.$i};
+                if (!isset($back[$i-1][$num])) {
+                    $back[$i-1][$num] = 0;
+                }
+                $back[$i-1][$num]++;
+            }
+        }
+
+        // 整理成前端需要的格式
+        $format = function ($arr) {
+            $out = [];
+            foreach ($arr as $num => $count) {
+                $out[] = [
+                    'number' => $num,
+                    'count'  => $count
+                ];
+            }
+            return $out;
+        };
+
+        return response()->json([
+            'code' => 200,
+            'data' => [
+                'front' => array_map($format, $front),
+                'back'  => array_map($format, $back),
+            ]
+        ]);
+    }
+
 }
