@@ -14,7 +14,12 @@ class SsqLottoHistory extends Model
         'back',
         'front_sum',
         'span',
-        'weights'
+        'weights',
+        'front_numbers',
+        'back_numbers',
+        'odd_count',
+        'even_count',
+        'zone_ratio'
     ];
 
     public $timestamps = false;
