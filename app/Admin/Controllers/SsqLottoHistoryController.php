@@ -118,24 +118,37 @@ class SsqLottoHistoryController extends AdminController
                     (int)$form->front6,
                 ];
 
-                // 和值
-                $sum = array_sum($fronts);
+                // 排序（保证统一）
+                sort($fronts);
 
-                // 跨度
+                // 生成字符串（不补 0）
+                $frontNumbers = implode(',', $fronts);
+                $backNumber   = (string)(int)$form->back;
+
+                // ========= 基础特征 =========
+                $sum  = array_sum($fronts);
                 $span = max($fronts) - min($fronts);
 
                 // 奇偶比
-                $oddCount = count(array_filter($fronts, function ($n) {
-                    return $n % 2 === 1;
-                }));
+                $oddCount  = count(array_filter($fronts, fn ($n) => $n % 2 === 1));
                 $evenCount = 6 - $oddCount;
 
-                // 写入模型
-                $form->model()->front_sum = $sum;
-                $form->model()->span = $span;
-                $form->model()->odd_count = $oddCount;
-                $form->model()->even_count = $evenCount;
+                // 奇偶比字符串，不带 0
+                $oddEven = $oddCount . ':' . $evenCount;
+
+                // ========= 写入模型 =========
+                $model = $form->model();
+
+                $model->front_numbers = $frontNumbers;
+                $model->back_numbers  = $backNumber;
+
+                $model->front_sum  = $sum;
+                $model->span       = $span;
+                $model->odd_count  = $oddCount;
+                $model->even_count = $evenCount;
+                $model->odd_even   = $oddEven;
             });
+
 
         });
     }
