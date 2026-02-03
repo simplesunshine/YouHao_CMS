@@ -146,7 +146,6 @@ class SsqLottoHistoryController extends AdminController
                 $model->span       = $span;
                 $model->odd_count  = $oddCount;
                 $model->even_count = $evenCount;
-                $model->odd_even   = $oddEven;
             });
 
 
