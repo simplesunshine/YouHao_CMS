@@ -133,8 +133,14 @@ class SsqLottoHistoryController extends AdminController
                 $oddCount  = count(array_filter($fronts, fn ($n) => $n % 2 === 1));
                 $evenCount = 6 - $oddCount;
 
-                // 奇偶比字符串，不带 0
-                $oddEven = $oddCount . ':' . $evenCount;
+                // ========= 区间比计算（1-11, 12-22, 23-33） =========
+                $zones = [0,0,0];
+                foreach ($fronts as $n) {
+                    if ($n >= 1 && $n <= 11)   $zones[0]++;
+                    if ($n >= 12 && $n <= 22)  $zones[1]++;
+                    if ($n >= 23 && $n <= 33)  $zones[2]++;
+                }
+                $zoneRatio = implode(',', $zones); // 保存为字符串 "2,3,1"
 
                 // ========= 写入模型 =========
                 $model = $form->model();
@@ -146,7 +152,9 @@ class SsqLottoHistoryController extends AdminController
                 $model->span       = $span;
                 $model->odd_count  = $oddCount;
                 $model->even_count = $evenCount;
+                $model->zone_ratio = $zoneRatio;  // 保存区间比
             });
+
 
 
         });
