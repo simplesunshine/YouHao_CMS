@@ -65,6 +65,7 @@ class SsqController extends Controller
 
                 $lastSpan     = $lastIssue->span;
                 $lastSum      = $lastIssue->front_sum;
+                $lastZones    = explode(',', $lastIssue->zone_ratio); // ["1","3","2"]
 
                 // -------------------------
                 // 第一阶段：权重 4 或 5
@@ -78,7 +79,10 @@ class SsqController extends Controller
                         'front_numbers',
                         'back_numbers',
                         'span',
-                        'front_sum'
+                        'front_sum',
+                        'zone1_count',
+                        'zone2_count',
+                        'zone3_count'
                     ])
                     ->get();
 
@@ -94,7 +98,10 @@ class SsqController extends Controller
                                 'front_numbers',
                                 'back_numbers',
                                 'span',
-                                'front_sum'
+                                'front_sum',
+                                'zone1_count',
+                                'zone2_count',
+                                'zone3_count'
                             ])
                             ->get();
 
@@ -104,19 +111,26 @@ class SsqController extends Controller
                     }
                 }
 
-                $randomData = $results->map(function($row) use ($lastSpan, $lastSum) {
+                $randomData = $results->map(function($row) use ($lastSpan, $lastSum, $lastZones) {
+
+                    // 判断区间比是否与上期相同
+                    $zoneSame = ($row->zone1_count == $lastZones[0] &&
+                                $row->zone2_count == $lastZones[1] &&
+                                $row->zone3_count == $lastZones[2]);
 
                     return [
-                        'front_numbers' => $row->front_numbers, // 不带0，占位直接数据库值
+                        'front_numbers' => $row->front_numbers,
                         'back_numbers'  => $row->back_numbers,
                         'features' => [
                             'span_same'       => $row->span == $lastSpan,
-                            'sum_same'        => $row->front_sum == $lastSum
+                            'sum_same'        => $row->front_sum == $lastSum,
+                            'zone_same'       => $zoneSame
                         ]
                     ];
                 });
 
                 break;
+
 
 
 
