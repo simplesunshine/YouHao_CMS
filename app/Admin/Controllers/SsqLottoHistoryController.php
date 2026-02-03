@@ -108,6 +108,7 @@ class SsqLottoHistoryController extends AdminController
 
             // 保存前自动计算
             $form->saving(function (Form $form) {
+
                 $fronts = [
                     (int)$form->front1,
                     (int)$form->front2,
@@ -117,17 +118,25 @@ class SsqLottoHistoryController extends AdminController
                     (int)$form->front6,
                 ];
 
+                // 和值
                 $sum = array_sum($fronts);
+
+                // 跨度
                 $span = max($fronts) - min($fronts);
 
-                // 方法 A：直接给模型赋值（推荐）
+                // 奇偶比
+                $oddCount = count(array_filter($fronts, function ($n) {
+                    return $n % 2 === 1;
+                }));
+                $evenCount = 6 - $oddCount;
+
+                // 写入模型
                 $form->model()->front_sum = $sum;
                 $form->model()->span = $span;
-
-                // （可选）方法 B：如果你更喜欢让表单字段带入，可以使用：
-                // $form->front_sum = $sum;
-                // $form->span = $span;
+                $form->model()->odd_count = $oddCount;
+                $form->model()->even_count = $evenCount;
             });
+
         });
     }
 
