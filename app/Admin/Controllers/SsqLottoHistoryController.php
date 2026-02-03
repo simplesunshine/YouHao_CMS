@@ -6,6 +6,8 @@ use App\Models\SsqLottoHistory;
 use Dcat\Admin\Grid;
 use Dcat\Admin\Http\Controllers\AdminController;
 use Dcat\Admin\Form;
+use Illuminate\Support\Facades\DB;
+
 
 class SsqLottoHistoryController extends AdminController
 {
@@ -98,15 +100,18 @@ class SsqLottoHistoryController extends AdminController
             // 蓝球
             $form->number('back', '蓝球')->required();
 
-            // 新增字段，非必填（为了能被保存，使用 hidden 隐藏在表单里）
-            $form->hidden('front_sum', '红球和值');
-            $form->hidden('span', '跨度');
+            $form->hidden('front_sum');
+            $form->hidden('span');
+            $form->hidden('zone_ratio');
+            $form->hidden('red_cold_json'); // ⭐️ 关键：让字段可写
 
-            $form->number('match_red', '匹配红球')->min(0);
-            $form->number('match_blue', '匹配蓝球')->min(0);
-            $form->number('weights', '权重');
+            $form->number('match_red')->min(0);
+            $form->number('match_blue')->min(0);
+            $form->number('weights');
 
-            // 保存前自动计算
+            /**
+             * 保存前：只算“本期自身特征”
+             */
             $form->saving(function (Form $form) {
 
                 $fronts = [
@@ -118,47 +123,53 @@ class SsqLottoHistoryController extends AdminController
                     (int)$form->front6,
                 ];
 
-                // 排序（保证统一）
                 sort($fronts);
 
-                // 生成字符串（不补 0）
-                $frontNumbers = implode(',', $fronts);
-                $backNumber   = (string)(int)$form->back;
+                $form->front_numbers = implode(',', $fronts);
+                $form->back_numbers  = (string)(int)$form->back;
 
-                // ========= 基础特征 =========
-                $sum  = array_sum($fronts);
-                $span = max($fronts) - min($fronts);
+                // 和值 / 跨度
+                $form->front_sum = array_sum($fronts);
+                $form->span      = max($fronts) - min($fronts);
 
-                // 奇偶比
-                $oddCount  = count(array_filter($fronts, fn ($n) => $n % 2 === 1));
-                $evenCount = 6 - $oddCount;
-
-                // ========= 区间比计算（1-11, 12-22, 23-33） =========
-                $zones = [0,0,0];
+                // 区间比
+                $zones = [0, 0, 0];
                 foreach ($fronts as $n) {
-                    if ($n >= 1 && $n <= 11)   $zones[0]++;
-                    if ($n >= 12 && $n <= 22)  $zones[1]++;
-                    if ($n >= 23 && $n <= 33)  $zones[2]++;
+                    if ($n <= 11)      $zones[0]++;
+                    elseif ($n <= 22)  $zones[1]++;
+                    else               $zones[2]++;
                 }
-                $zoneRatio = implode(',', $zones); // 保存为字符串 "2,3,1"
-
-                // ========= 写入模型 =========
-                $model = $form->model();
-
-                $model->front_numbers = $frontNumbers;
-                $model->back_numbers  = $backNumber;
-
-                $model->front_sum  = $sum;
-                $model->span       = $span;
-                $model->odd_count  = $oddCount;
-                $model->even_count = $evenCount;
-                $model->zone_ratio = $zoneRatio;  // 保存区间比
+                $form->zone_ratio = implode(',', $zones);
             });
+            
+            // 保存后：算 red_cold_json（用 id）
+            $form->saved(function (Form $form) {
 
+                $currentId = $form->model()->id;
 
+                $cold = [];
+
+                for ($n = 1; $n <= 33; $n++) {
+                    // 找最大 id（包含当前期），如果当前期包含这个号码，max 会等于 $currentId -> cold = 0
+                    $lastId = DB::table('ssq_lotto_history')
+                        ->whereRaw('? IN (front1,front2,front3,front4,front5,front6)', [$n])
+                        ->max('id');
+
+                    // 如果从未出现过，lastId 为 NULL，视为极冷，设为 currentId
+                    $cold[$n] = $lastId ? ($currentId - $lastId) : $currentId;
+                }
+
+                // 写回当前这期
+                DB::table('ssq_lotto_history')
+                    ->where('id', $currentId)
+                    ->update([
+                        'red_cold_json' => json_encode($cold, JSON_UNESCAPED_UNICODE)
+                    ]);
+            });
 
         });
     }
+
 
 
 }

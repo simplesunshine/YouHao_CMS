@@ -19,7 +19,8 @@ class SsqLottoHistory extends Model
         'back_numbers',
         'odd_count',
         'even_count',
-        'zone_ratio'
+        'zone_ratio',
+        'red_cold_json'
     ];
 
     public $timestamps = false;
