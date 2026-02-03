@@ -49,36 +49,75 @@ class SsqController extends Controller
 
                 $randomData = collect();
 
-                // 第一阶段：权重 4 或 5（同级随机）
-                $results = LottoSsqRecommendation::whereNull('ip')
-                    ->whereIn('weight', [4, 5])
-                    ->inRandomOrder()
-                    ->take($take)
-                    ->select(['id','front_numbers','back_numbers'])
-                    ->get();
+                // -------------------------
+                // 获取上期开奖号码及特征
+                // -------------------------
+                $lastIssue = DB::table('ssq_lotto_history')
+                    ->orderByDesc('issue')
+                    ->first();
 
-                if ($results->isNotEmpty()) {
-                    $randomData = $results;
-                    break;
+                if (!$lastIssue) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '暂无历史开奖数据'
+                    ]);
                 }
 
-                // 第二阶段：再依次降级
-                foreach ([3, 2, 1] as $w) {
+                $lastSpan     = $lastIssue->span;
+                $lastSum      = $lastIssue->front_sum;
 
-                    $results = LottoSsqRecommendation::whereNull('ip')
-                        ->where('weight', $w)
-                        ->inRandomOrder()
-                        ->take($take)
-                        ->select(['id','front_numbers','back_numbers'])
-                        ->get();
+                // -------------------------
+                // 第一阶段：权重 4 或 5
+                // -------------------------
+                $results = LottoSsqRecommendation::whereNull('ip')
+                    ->whereIn('weight', [4,5])
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->select([
+                        'id',
+                        'front_numbers',
+                        'back_numbers',
+                        'span',
+                        'front_sum'
+                    ])
+                    ->get();
 
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
+                if ($results->isEmpty()) {
+                    // 第二阶段降级权重 3/2/1
+                    foreach ([3,2,1] as $w) {
+                        $results = LottoSsqRecommendation::whereNull('ip')
+                            ->where('weight', $w)
+                            ->inRandomOrder()
+                            ->take($take)
+                            ->select([
+                                'id',
+                                'front_numbers',
+                                'back_numbers',
+                                'span',
+                                'front_sum'
+                            ])
+                            ->get();
+
+                        if ($results->isNotEmpty()) {
+                            break;
+                        }
                     }
                 }
 
+                $randomData = $results->map(function($row) use ($lastSpan, $lastSum) {
+
+                    return [
+                        'front_numbers' => $row->front_numbers, // 不带0，占位直接数据库值
+                        'back_numbers'  => $row->back_numbers,
+                        'features' => [
+                            'span_same'       => $row->span == $lastSpan,
+                            'sum_same'        => $row->front_sum == $lastSum
+                        ]
+                    ];
+                });
+
                 break;
+
 
 
             /**
