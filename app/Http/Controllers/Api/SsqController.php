@@ -86,7 +86,7 @@ class SsqController extends Controller
                     ->take($take)
                     ->select([
                         'id','front_numbers','back_numbers','span','front_sum',
-                        'zone1_count','zone2_count','zone3_count'
+                        'zone1_count','zone2_count','zone3_count','consecutive_count'
                     ])
                     ->get();
 
@@ -98,7 +98,7 @@ class SsqController extends Controller
                             ->take($take)
                             ->select([
                                 'id','front_numbers','back_numbers','span','front_sum',
-                                'zone1_count','zone2_count','zone3_count'
+                                'zone1_count','zone2_count','zone3_count','consecutive_count'
                             ])
                             ->get();
                         if ($results->isNotEmpty()) break;
@@ -124,6 +124,7 @@ class SsqController extends Controller
                             'sum_same'     => $row->front_sum == $lastSum,
                             'zone_same'    => $zoneSame,
                             'cold_numbers' => $thisCold, // 本注中属于冷号的号码
+                            'continue_count' => $row->consecutive_count
                         ]
                     ];
                 });
@@ -181,23 +182,84 @@ class SsqController extends Controller
                     ],400);
                 }
 
+                // -------------------------
+                // 获取上期开奖号码及特征
+                // -------------------------
+                $lastIssue = DB::table('ssq_lotto_history')
+                    ->orderByDesc('id')
+                    ->first();
+
+                if (!$lastIssue) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '暂无历史开奖数据'
+                    ]);
+                }
+
+                $lastSpan  = $lastIssue->span;
+                $lastSum   = $lastIssue->front_sum;
+                $lastZones = explode(',', $lastIssue->zone_ratio); // ["1","3","2"]
+                $redCold   = json_decode($lastIssue->red_cold_json, true) ?? [];
+
+                // 找到最大遗漏值
+                $maxCold = $redCold ? max($redCold) : 0;
+                $coldNumbers = [];
+                foreach ($redCold as $num => $val) {
+                    if ($val === $maxCold && $val > 0) {
+                        $coldNumbers[] = (int)$num;
+                    }
+                }
+
+                // -------------------------
+                // 查询符合胆码条件的号码
+                // -------------------------
                 $query = LottoSsqRecommendation::whereNull('ip');
                 foreach ($dan as $num) {
                     $query->where(function ($q) use ($num) {
-                        $q->orWhere('front_1',$num)
-                          ->orWhere('front_2',$num)
-                          ->orWhere('front_3',$num)
-                          ->orWhere('front_4',$num)
-                          ->orWhere('front_5',$num)
-                          ->orWhere('front_6',$num);
+                        $q->orWhere('front_1', $num)
+                        ->orWhere('front_2', $num)
+                        ->orWhere('front_3', $num)
+                        ->orWhere('front_4', $num)
+                        ->orWhere('front_5', $num)
+                        ->orWhere('front_6', $num);
                     });
                 }
 
-                $randomData = $query->inRandomOrder()
+                // 取随机号码并附加特征
+                $results = $query->inRandomOrder()
                     ->take($take)
-                    ->select(['id','front_numbers','back_numbers'])
+                    ->select([
+                        'id','front_numbers','back_numbers','span','front_sum',
+                        'zone1_count','zone2_count','zone3_count','consecutive_count'
+                    ])
                     ->get();
+
+                $randomData = $results->map(function($row) use ($lastSpan, $lastSum, $lastZones, $coldNumbers) {
+                    $reds = array_map('intval', explode(',', $row->front_numbers));
+
+                    // 本注号码中属于冷号的
+                    $thisCold = array_values(array_intersect($reds, $coldNumbers));
+
+                    // 区间比同上期
+                    $zoneSame = ($row->zone1_count == $lastZones[0] &&
+                                $row->zone2_count == $lastZones[1] &&
+                                $row->zone3_count == $lastZones[2]);
+
+                    return [
+                        'front_numbers' => $row->front_numbers,
+                        'back_numbers'  => $row->back_numbers,
+                        'features' => [
+                            'span_same'    => $row->span == $lastSpan,
+                            'sum_same'     => $row->front_sum == $lastSum,
+                            'zone_same'    => $zoneSame,
+                            'cold_numbers' => $thisCold, // 本注中属于冷号的号码
+                            'continue_count' => $row->consecutive_count
+                        ]
+                    ];
+                });
+
                 break;
+
 
             /**
              * =========================
