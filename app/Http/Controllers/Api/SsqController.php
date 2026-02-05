@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use App\Models\LottoSsqRecommendation;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class SsqController extends Controller
 {
@@ -50,11 +51,32 @@ class SsqController extends Controller
                 $randomData = collect();
 
                 // -------------------------
-                // 获取上期开奖号码及特征
+                // 获取上期开奖号码及特征（缓存1分钟）
                 // -------------------------
-                $lastIssue = DB::table('ssq_lotto_history')
-                    ->orderByDesc('id')
-                    ->first();
+                $lastIssue = Cache::remember('ssq_last_issue_features', 60, function() {
+                    $last = DB::table('ssq_lotto_history')
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if (!$last) return null;
+
+                    $redCold = json_decode($last->red_cold_json, true) ?? [];
+                    $maxCold = $redCold ? max($redCold) : 0;
+                    $coldNumbers = [];
+                    foreach ($redCold as $num => $val) {
+                        if ($val === $maxCold && $val > 0) $coldNumbers[] = (int)$num;
+                    }
+
+                    return [
+                        'front_numbers'  => $last->front_numbers,
+                        'back_numbers'   => $last->back_numbers,
+                        'span'           => $last->span,
+                        'front_sum'      => $last->front_sum,
+                        'zone_ratio'     => explode(',', $last->zone_ratio),
+                        'cold_numbers'   => $coldNumbers,
+                        'continue_count' => $last->continue_count ?? 0
+                    ];
+                });
 
                 if (!$lastIssue) {
                     return response()->json([
@@ -63,19 +85,10 @@ class SsqController extends Controller
                     ]);
                 }
 
-                $lastSpan  = $lastIssue->span;
-                $lastSum   = $lastIssue->front_sum;
-                $lastZones = explode(',', $lastIssue->zone_ratio); // ["1","3","2"]
-                $redCold   = json_decode($lastIssue->red_cold_json, true) ?? [];
-
-                // 找到最大遗漏值
-                $maxCold = $redCold ? max($redCold) : 0;
-                $coldNumbers = [];
-                foreach ($redCold as $num => $val) {
-                    if ($val === $maxCold && $val > 0) {
-                        $coldNumbers[] = (int)$num;
-                    }
-                }
+                $lastSpan  = $lastIssue['span'];
+                $lastSum   = $lastIssue['front_sum'];
+                $lastZones = $lastIssue['zone_ratio'];
+                $coldNumbers = $lastIssue['cold_numbers'];
 
                 // -------------------------
                 // 获取推荐号码
@@ -108,27 +121,29 @@ class SsqController extends Controller
                 }
 
                 // -------------------------
-                // 获取最近50期每个位置的号码出现次数
+                // 获取最近50期每个位置的号码出现次数（缓存1分钟）
                 // -------------------------
-                $last50Issues = DB::table('ssq_lotto_history')
-                    ->orderByDesc('id')
-                    ->limit(50)
-                    ->select(['front1','front2','front3','front4','front5','front6'])
-                    ->get()
-                    ->toArray();
+                $posCounts = Cache::remember('ssq_last50_pos_counts', 60, function() {
+                    $last50Issues = DB::table('ssq_lotto_history')
+                        ->orderByDesc('id')
+                        ->limit(50)
+                        ->select(['front1','front2','front3','front4','front5','front6'])
+                        ->get()
+                        ->toArray();
 
-                $posCounts = [];
-                for ($pos = 1; $pos <= 6; $pos++) {
-                    $posCounts[$pos] = [];
-                }
+                    $counts = [];
+                    for ($pos = 1; $pos <= 6; $pos++) $counts[$pos] = [];
 
-                foreach ($last50Issues as $issue) {
-                    for ($pos = 1; $pos <= 6; $pos++) {
-                        $num = $issue->{'front'.$pos};
-                        if (!isset($posCounts[$pos][$num])) $posCounts[$pos][$num] = 0;
-                        $posCounts[$pos][$num]++;
+                    foreach ($last50Issues as $issue) {
+                        for ($pos = 1; $pos <= 6; $pos++) {
+                            $num = $issue->{'front'.$pos};
+                            if (!isset($counts[$pos][$num])) $counts[$pos][$num] = 0;
+                            $counts[$pos][$num]++;
+                        }
                     }
-                }
+
+                    return $counts;
+                });
 
                 // -------------------------
                 // 构建返回数据
@@ -154,7 +169,7 @@ class SsqController extends Controller
                         $num = $row->{'front_'.$pos};
                         $count = $posCounts[$pos][$num] ?? 0;
                         $posAppear[] = $count;
-                        if ($count <= 1) $lowPosNums[] = $num; // 紫色标记
+                        if ($count === 0) $lowPosNums[] = $num; // 黑色标记
                     }
 
                     return [
@@ -173,9 +188,6 @@ class SsqController extends Controller
                 });
 
             break;
-
-
-
 
 
 
