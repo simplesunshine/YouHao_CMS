@@ -51,6 +51,7 @@ Route::get('/dlt-history', [OpenResultController::class, 'dltHistory']);
 Route::get('/news/ssq', [NewsController::class, 'ssq']);
 Route::get('/news/dlt', [NewsController::class, 'dlt']);
 
+Route::get('/ssq/lastIssue', [SsqController::class, 'lastIssue']);
 Route::get('/ssq/number-distribution', [SsqController::class, 'numberDistribution']);
 Route::get('/dlt/number-distribution', [DltController::class, 'numberDistribution']);
 

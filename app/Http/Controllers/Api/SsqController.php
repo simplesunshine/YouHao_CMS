@@ -387,4 +387,47 @@ class SsqController extends Controller
             'data' => $result
         ]);
     }
+
+
+    /**
+     * 新增接口：获取上期开奖号码
+     */
+    public function lastIssue(Request $request)
+    {
+        // 获取最新一期的前一期开奖结果
+        $last = DB::table('ssq_lotto_history')
+            ->orderByDesc('id')
+            ->first();
+
+        if (!$last) {
+            return response()->json([
+                'success' => false,
+                'message' => '暂无历史开奖数据'
+            ]);
+        }
+
+        // 解析冷号
+        $redCold = json_decode($last->red_cold_json, true) ?? [];
+        $maxCold = $redCold ? max($redCold) : 0;
+        $coldNumbers = [];
+        foreach ($redCold as $num => $val) {
+            if ($val === $maxCold && $val > 0) {
+                $coldNumbers[] = (int)$num;
+            }
+        }
+
+        $data = [
+            'front_numbers' => $last->front_numbers,
+            'back_numbers'  => $last->back_numbers,
+            'features' => [
+                'cold_numbers'   => $coldNumbers,
+                'continue_count' => $last->continue_count ?? 0
+            ]
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $data
+        ]);
+    }   
 }
