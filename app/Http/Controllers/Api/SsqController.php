@@ -69,7 +69,7 @@ class SsqController extends Controller
                 $redCold   = json_decode($lastIssue->red_cold_json, true) ?? [];
 
                 // 找到最大遗漏值
-                $maxCold = max($redCold);
+                $maxCold = $redCold ? max($redCold) : 0;
                 $coldNumbers = [];
                 foreach ($redCold as $num => $val) {
                     if ($val === $maxCold && $val > 0) {
@@ -86,7 +86,8 @@ class SsqController extends Controller
                     ->take($take)
                     ->select([
                         'id','front_numbers','back_numbers','span','front_sum',
-                        'zone1_count','zone2_count','zone3_count','consecutive_count'
+                        'zone1_count','zone2_count','zone3_count','consecutive_count',
+                        'front_1','front_2','front_3','front_4','front_5','front_6'
                     ])
                     ->get();
 
@@ -98,38 +99,81 @@ class SsqController extends Controller
                             ->take($take)
                             ->select([
                                 'id','front_numbers','back_numbers','span','front_sum',
-                                'zone1_count','zone2_count','zone3_count','consecutive_count'
+                                'zone1_count','zone2_count','zone3_count','consecutive_count',
+                                'front_1','front_2','front_3','front_4','front_5','front_6'
                             ])
                             ->get();
                         if ($results->isNotEmpty()) break;
                     }
                 }
 
-                $randomData = $results->map(function($row) use ($lastSpan, $lastSum, $lastZones, $coldNumbers) {
+                // -------------------------
+                // 获取最近50期每个位置的号码出现次数
+                // -------------------------
+                $last50Issues = DB::table('ssq_lotto_history')
+                    ->orderByDesc('id')
+                    ->limit(50)
+                    ->select(['front1','front2','front3','front4','front5','front6'])
+                    ->get()
+                    ->toArray();
+
+                $posCounts = [];
+                for ($pos = 1; $pos <= 6; $pos++) {
+                    $posCounts[$pos] = [];
+                }
+
+                foreach ($last50Issues as $issue) {
+                    for ($pos = 1; $pos <= 6; $pos++) {
+                        $num = $issue->{'front'.$pos};
+                        if (!isset($posCounts[$pos][$num])) $posCounts[$pos][$num] = 0;
+                        $posCounts[$pos][$num]++;
+                    }
+                }
+
+                // -------------------------
+                // 构建返回数据
+                // -------------------------
+                $randomData = $results->map(function($row) use ($lastSpan, $lastSum, $lastZones, $coldNumbers, $posCounts) {
 
                     $reds = array_map('intval', explode(',', $row->front_numbers));
 
-                    // 选出本注号码中属于冷号的
+                    // 本注号码中属于冷号的
                     $thisCold = array_values(array_intersect($reds, $coldNumbers));
 
+                    // 区间比同上期
                     $zoneSame = ($row->zone1_count == $lastZones[0] &&
                                 $row->zone2_count == $lastZones[1] &&
                                 $row->zone3_count == $lastZones[2]);
+
+                    // -------------------------
+                    // 计算位置近50期出现次数
+                    // -------------------------
+                    $posAppear = [];
+                    $lowPosNums = [];
+                    for ($pos = 1; $pos <= 6; $pos++) {
+                        $num = $row->{'front_'.$pos};
+                        $count = $posCounts[$pos][$num] ?? 0;
+                        $posAppear[] = $count;
+                        if ($count <= 1) $lowPosNums[] = $num; // 紫色标记
+                    }
 
                     return [
                         'front_numbers' => $row->front_numbers,
                         'back_numbers'  => $row->back_numbers,
                         'features' => [
-                            'span_same'    => $row->span == $lastSpan,
-                            'sum_same'     => $row->front_sum == $lastSum,
-                            'zone_same'    => $zoneSame,
-                            'cold_numbers' => $thisCold, // 本注中属于冷号的号码
-                            'continue_count' => $row->consecutive_count
+                            'span_same'      => $row->span == $lastSpan,
+                            'sum_same'       => $row->front_sum == $lastSum,
+                            'zone_same'      => $zoneSame,
+                            'cold_numbers'   => $thisCold,
+                            'continue_count' => $row->consecutive_count,
+                            'pos_appear'     => $posAppear,
+                            'low_pos_nums'   => $lowPosNums
                         ]
                     ];
                 });
 
-                break;
+            break;
+
 
 
 
