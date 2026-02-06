@@ -100,18 +100,20 @@ class SsqLottoHistoryController extends AdminController
             // 蓝球
             $form->number('back', '蓝球')->required();
 
+            // 把需要保存但不让用户编辑的字段都声明为 hidden
+            $form->hidden('front_numbers');
+            $form->hidden('back_numbers');
             $form->hidden('front_sum');
             $form->hidden('span');
             $form->hidden('zone_ratio');
-            $form->hidden('red_cold_json'); // ⭐️ 关键：让字段可写
+            $form->hidden('red_cold_json'); // 保存冷号 json
+            $form->hidden('odd_count');
+            $form->hidden('even_count');
 
             $form->number('match_red')->min(0);
             $form->number('match_blue')->min(0);
             $form->number('weights');
 
-            /**
-             * 保存前：只算“本期自身特征”
-             */
             $form->saving(function (Form $form) {
 
                 $fronts = [
@@ -125,12 +127,13 @@ class SsqLottoHistoryController extends AdminController
 
                 sort($fronts);
 
-                $form->front_numbers = implode(',', $fronts);
-                $form->back_numbers  = (string)(int)$form->back;
+                // 写到 model 上，确保会保存
+                $form->model()->front_numbers = implode(',', $fronts);
+                $form->model()->back_numbers  = (string)(int)$form->back;
 
                 // 和值 / 跨度
-                $form->front_sum = array_sum($fronts);
-                $form->span      = max($fronts) - min($fronts);
+                $form->model()->front_sum = array_sum($fronts);
+                $form->model()->span      = max($fronts) - min($fronts);
 
                 // 区间比
                 $zones = [0, 0, 0];
@@ -139,9 +142,17 @@ class SsqLottoHistoryController extends AdminController
                     elseif ($n <= 22)  $zones[1]++;
                     else               $zones[2]++;
                 }
-                $form->zone_ratio = implode(',', $zones);
+                $form->model()->zone_ratio = implode(',', $zones);
+
+                // 奇偶数
+                $odd = 0;
+                foreach ($fronts as $n) {
+                    if ($n % 2 === 1) $odd++;
+                }
+                $form->model()->odd_count  = $odd;
+                $form->model()->even_count = 6 - $odd;
             });
-            
+
             // 保存后：算 red_cold_json（用 id）
             $form->saved(function (Form $form) {
 
@@ -150,16 +161,13 @@ class SsqLottoHistoryController extends AdminController
                 $cold = [];
 
                 for ($n = 1; $n <= 33; $n++) {
-                    // 找最大 id（包含当前期），如果当前期包含这个号码，max 会等于 $currentId -> cold = 0
                     $lastId = DB::table('ssq_lotto_history')
                         ->whereRaw('? IN (front1,front2,front3,front4,front5,front6)', [$n])
                         ->max('id');
 
-                    // 如果从未出现过，lastId 为 NULL，视为极冷，设为 currentId
                     $cold[$n] = $lastId ? ($currentId - $lastId) : $currentId;
                 }
 
-                // 写回当前这期
                 DB::table('ssq_lotto_history')
                     ->where('id', $currentId)
                     ->update([
