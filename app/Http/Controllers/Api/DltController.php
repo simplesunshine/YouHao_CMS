@@ -159,11 +159,11 @@ class DltController extends Controller
                     $thisCold = array_values(array_intersect($reds, $coldNumbers));
 
                     // 区间比同上期
-                    $zoneSame = ($row->zone1_count == $lastZones[0] &&
+                    $zoneSame = isset($lastZones[0], $lastZones[1], $lastZones[2]) &&
+                                $row->zone1_count == $lastZones[0] &&
                                 $row->zone2_count == $lastZones[1] &&
-                                $row->zone3_count == $lastZones[2] &&
-                                $row->zone4_count == $lastZones[3] &&
-                                $row->zone5_count == $lastZones[4]);
+                                $row->zone3_count == $lastZones[2];
+
 
                     // 位置近50期出现次数
                     $posAppear = [];
