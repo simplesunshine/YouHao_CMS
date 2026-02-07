@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use App\Models\LottoDltRecommendation;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class DltController extends Controller
 {
@@ -48,35 +49,149 @@ class DltController extends Controller
              */
             case 'normal':
 
-                // 第一阶段：权重 4 或 5（同级池，随便取）
-                $results = LottoDltRecommendation::whereNull('ip')
-                    ->whereIn('weight', [4, 5])
-                    ->inRandomOrder()
-                    ->take($take)
-                    ->select(['id','front_numbers','back_numbers'])
-                    ->get();
+                $randomData = collect();
 
-                if ($results->isNotEmpty()) {
-                    $randomData = $results;
-                    break;
+                // -------------------------
+                // 获取上期开奖号码及特征（缓存1分钟）
+                // -------------------------
+                $lastIssue = Cache::remember('dlt_last_issue_features', 60, function() {
+                    $last = DB::table('dlt_lotto_history')
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if (!$last) return null;
+
+                    // 计算冷号
+                    $redCold = json_decode($last->red_cold_json, true) ?? [];
+                    $maxCold = $redCold ? max($redCold) : 0;
+                    $coldNumbers = [];
+                    foreach ($redCold as $num => $val) {
+                        if ($val === $maxCold && $val > 0) $coldNumbers[] = (int)$num;
+                    }
+
+                    return [
+                        'front_numbers'  => $last->front_numbers,
+                        'back_numbers'   => $last->back_numbers,
+                        'span'           => $last->span,
+                        'front_sum'      => $last->front_sum,
+                        'zone_ratio'     => explode(',', $last->zone_ratio), // 前区5个数分区间统计
+                        'cold_numbers'   => $coldNumbers,
+                        'continue_count' => $last->continue_count ?? 0
+                    ];
+                });
+
+                if (!$lastIssue) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '暂无历史开奖数据'
+                    ]);
                 }
 
-                // 第二阶段：再依次降级
-                foreach ([3, 2, 1] as $w) {
-                    $results = LottoDltRecommendation::whereNull('ip')
-                        ->where('weight', $w)
-                        ->inRandomOrder()
-                        ->take($take)
-                        ->select(['id','front_numbers','back_numbers'])
-                        ->get();
+                $lastSpan    = $lastIssue['span'];
+                $lastSum     = $lastIssue['front_sum'];
+                $lastZones   = $lastIssue['zone_ratio'];
+                $coldNumbers = $lastIssue['cold_numbers'];
 
-                    if ($results->isNotEmpty()) {
-                        $randomData = $results;
-                        break;
+                // -------------------------
+                // 获取推荐号码
+                // -------------------------
+                $results = LottoDltRecommendation::whereNull('ip')
+                    ->whereIn('weight', [4,5])
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->select([
+                        'id','front_numbers','back_numbers','span','front_sum',
+                        'zone1_count','zone2_count','zone3_count',
+                        'consecutive_count',
+                        'front_1','front_2','front_3','front_4','front_5'
+                    ])
+                    ->get();
+
+                if ($results->isEmpty()) {
+                    foreach ([3,2,1] as $w) {
+                        $results = LottoDltRecommendation::whereNull('ip')
+                            ->where('weight', $w)
+                            ->inRandomOrder()
+                            ->take($take)
+                            ->select([
+                                'id','front_numbers','back_numbers','span','front_sum',
+                                'zone1_count','zone2_count','zone3_count',
+                                'consecutive_count',
+                                'front_1','front_2','front_3','front_4','front_5'
+                            ])
+                            ->get();
+                        if ($results->isNotEmpty()) break;
                     }
                 }
 
-                break;
+                // -------------------------
+                // 获取最近50期每个位置的号码出现次数（缓存1分钟）
+                // -------------------------
+                $posCounts = Cache::remember('dlt_last50_pos_counts', 60, function() {
+                    $last50Issues = DB::table('dlt_lotto_history')
+                        ->orderByDesc('id')
+                        ->limit(50)
+                        ->select(['front1','front2','front3','front4','front5'])
+                        ->get()
+                        ->toArray();
+
+                    $counts = [];
+                    for ($pos=1; $pos<=5; $pos++) $counts[$pos] = [];
+
+                    foreach ($last50Issues as $issue) {
+                        for ($pos=1; $pos<=5; $pos++) {
+                            $num = $issue->{'front'.$pos};
+                            if (!isset($counts[$pos][$num])) $counts[$pos][$num] = 0;
+                            $counts[$pos][$num]++;
+                        }
+                    }
+                    return $counts;
+                });
+
+                // -------------------------
+                // 构建返回数据
+                // -------------------------
+                $randomData = $results->map(function($row) use ($lastSpan,$lastSum,$lastZones,$coldNumbers,$posCounts) {
+
+                    $reds = array_map('intval', explode(',', $row->front_numbers));
+
+                    // 本注号码中属于冷号的
+                    $thisCold = array_values(array_intersect($reds, $coldNumbers));
+
+                    // 区间比同上期
+                    $zoneSame = ($row->zone1_count == $lastZones[0] &&
+                                $row->zone2_count == $lastZones[1] &&
+                                $row->zone3_count == $lastZones[2] &&
+                                $row->zone4_count == $lastZones[3] &&
+                                $row->zone5_count == $lastZones[4]);
+
+                    // 位置近50期出现次数
+                    $posAppear = [];
+                    $lowPosNums = [];
+                    for ($pos=1; $pos<=5; $pos++) {
+                        $num = $row->{'front_'.$pos};
+                        $count = $posCounts[$pos][$num] ?? 0;
+                        $posAppear[] = $count;
+                        if ($count===0) $lowPosNums[] = $num; // 黑色标记
+                    }
+
+                    return [
+                        'front_numbers' => $row->front_numbers,
+                        'back_numbers'  => $row->back_numbers,
+                        'features' => [
+                            'span_same'      => $row->span == $lastSpan,
+                            'sum_same'       => $row->front_sum == $lastSum,
+                            'zone_same'      => $zoneSame,
+                            'cold_numbers'   => $thisCold,
+                            'continue_count' => $row->consecutive_count,
+                            'pos_appear'     => $posAppear,
+                            'low_pos_nums'   => $lowPosNums
+                        ]
+                    ];
+                });
+
+            break;
+
 
 
             /**
@@ -372,4 +487,45 @@ class DltController extends Controller
         ]);
     }
 
+    /**
+     * 新增接口：获取上期开奖号码
+     */
+    public function lastIssue(Request $request)
+    {
+        // 获取最新一期的前一期开奖结果
+        $last = DB::table('dlt_lotto_history')
+            ->orderByDesc('id')
+            ->first();
+
+        if (!$last) {
+            return response()->json([
+                'success' => false,
+                'message' => '暂无历史开奖数据'
+            ]);
+        }
+
+        // 解析冷号
+        $redCold = json_decode($last->red_cold_json, true) ?? [];
+        $maxCold = $redCold ? max($redCold) : 0;
+        $coldNumbers = [];
+        foreach ($redCold as $num => $val) {
+            if ($val === $maxCold && $val > 0) {
+                $coldNumbers[] = (int)$num;
+            }
+        }
+
+        $data = [
+            'front_numbers' => $last->front_numbers,
+            'back_numbers'  => $last->back_numbers,
+            'features' => [
+                'cold_numbers'   => $coldNumbers,
+                'continue_count' => $last->continue_count ?? 0
+            ]
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $data
+        ]);
+    }
 }
