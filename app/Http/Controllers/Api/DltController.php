@@ -176,6 +176,7 @@ class DltController extends Controller
                     }
 
                     return [
+                        'id' => $row->id,
                         'front_numbers' => $row->front_numbers,
                         'back_numbers'  => $row->back_numbers,
                         'features' => [
