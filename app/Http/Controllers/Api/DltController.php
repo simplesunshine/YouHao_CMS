@@ -360,7 +360,7 @@ class DltController extends Controller
         LottoDltRecommendation::whereIn(
             'id',
             $randomData->pluck('id')->toArray()
-        )->update(['ip'=>$ip]);
+        )->update(['ip'=>$ip, 'mode' => $type]);
 
         return response()->json([
             'success'=>true,
