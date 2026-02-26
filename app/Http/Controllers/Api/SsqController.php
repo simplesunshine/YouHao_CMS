@@ -94,7 +94,7 @@ class SsqController extends Controller
                 // 获取推荐号码
                 // -------------------------
                 $results = LottoSsqRecommendation::whereNull('ip')
-                    ->whereIn('weight', [4,5])
+                    ->whereIn('weight', [3,4])
                     ->inRandomOrder()
                     ->take($take)
                     ->select([
@@ -105,7 +105,7 @@ class SsqController extends Controller
                     ->get();
 
                 if ($results->isEmpty()) {
-                    foreach ([3,2,1] as $w) {
+                    foreach ([5,2,1] as $w) {
                         $results = LottoSsqRecommendation::whereNull('ip')
                             ->where('weight', $w)
                             ->inRandomOrder()

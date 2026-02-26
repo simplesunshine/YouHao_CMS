@@ -96,7 +96,7 @@ class DltController extends Controller
                 // 获取推荐号码
                 // -------------------------
                 $results = LottoDltRecommendation::whereNull('ip')
-                    ->whereIn('weight', [4,5])
+                    ->whereIn('weight', [4,3,2])
                     ->inRandomOrder()
                     ->take($take)
                     ->select([
@@ -108,7 +108,7 @@ class DltController extends Controller
                     ->get();
 
                 if ($results->isEmpty()) {
-                    foreach ([3,2,1] as $w) {
+                    foreach ([5,1] as $w) {
                         $results = LottoDltRecommendation::whereNull('ip')
                             ->where('weight', $w)
                             ->inRandomOrder()
