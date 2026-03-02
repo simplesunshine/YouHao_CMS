@@ -246,18 +246,107 @@ class DltController extends Controller
                 foreach ($frontDan as $num) {
                     $query->where(function ($q) use ($num) {
                         $q->orWhere('front_1',$num)
-                          ->orWhere('front_2',$num)
-                          ->orWhere('front_3',$num)
-                          ->orWhere('front_4',$num)
-                          ->orWhere('front_5',$num);
+                        ->orWhere('front_2',$num)
+                        ->orWhere('front_3',$num)
+                        ->orWhere('front_4',$num)
+                        ->orWhere('front_5',$num);
                     });
                 }
 
-                $randomData = $query->inRandomOrder()
+                $results = $query->inRandomOrder()
                     ->take($take)
-                    ->select(['id','front_numbers','back_numbers'])
+                    ->select([
+                        'id','front_numbers','back_numbers','span','front_sum',
+                        'zone1_count','zone2_count','zone3_count',
+                        'consecutive_count',
+                        'front_1','front_2','front_3','front_4','front_5'
+                    ])
                     ->get();
-                break;
+
+                // 同 normal 一样处理特征
+                $lastIssue = Cache::remember('dlt_last_issue_features', 60, function() {
+                    $last = DB::table('dlt_lotto_history')
+                        ->orderByDesc('id')
+                        ->first();
+                    if (!$last) return null;
+
+                    $redCold = json_decode($last->red_cold_json, true) ?? [];
+                    $maxCold = $redCold ? max($redCold) : 0;
+                    $coldNumbers = [];
+                    foreach ($redCold as $num => $val) {
+                        if ($val === $maxCold && $val > 0) $coldNumbers[] = (int)$num;
+                    }
+
+                    return [
+                        'span' => $last->span,
+                        'front_sum' => $last->front_sum,
+                        'zone_ratio' => explode(',', $last->zone_ratio),
+                        'cold_numbers' => $coldNumbers,
+                        'continue_count' => $last->continue_count ?? 0
+                    ];
+                });
+
+                $lastSpan    = $lastIssue['span'];
+                $lastSum     = $lastIssue['front_sum'];
+                $lastZones   = $lastIssue['zone_ratio'];
+                $coldNumbers = $lastIssue['cold_numbers'];
+
+                $posCounts = Cache::remember('dlt_last50_pos_counts', 60, function() {
+                    $last50Issues = DB::table('dlt_lotto_history')
+                        ->orderByDesc('id')
+                        ->limit(50)
+                        ->select(['front1','front2','front3','front4','front5'])
+                        ->get()
+                        ->toArray();
+
+                    $counts = [];
+                    for ($pos=1; $pos<=5; $pos++) $counts[$pos] = [];
+
+                    foreach ($last50Issues as $issue) {
+                        for ($pos=1; $pos<=5; $pos++) {
+                            $num = $issue->{'front'.$pos};
+                            if (!isset($counts[$pos][$num])) $counts[$pos][$num] = 0;
+                            $counts[$pos][$num]++;
+                        }
+                    }
+                    return $counts;
+                });
+
+                $randomData = $results->map(function($row) use ($lastSpan,$lastSum,$lastZones,$coldNumbers,$posCounts) {
+
+                    $reds = array_map('intval', explode(',', $row->front_numbers));
+                    $thisCold = array_values(array_intersect($reds, $coldNumbers));
+
+                    $zoneSame = isset($lastZones[0], $lastZones[1], $lastZones[2]) &&
+                                $row->zone1_count == $lastZones[0] &&
+                                $row->zone2_count == $lastZones[1] &&
+                                $row->zone3_count == $lastZones[2];
+
+                    $posAppear = [];
+                    $lowPosNums = [];
+                    for ($pos=1; $pos<=5; $pos++) {
+                        $num = $row->{'front_'.$pos};
+                        $count = $posCounts[$pos][$num] ?? 0;
+                        $posAppear[] = $count;
+                        if ($count===0) $lowPosNums[] = $num;
+                    }
+
+                    return [
+                        'id' => $row->id,
+                        'front_numbers' => $row->front_numbers,
+                        'back_numbers'  => $row->back_numbers,
+                        'features' => [
+                            'span_same'      => $row->span == $lastSpan,
+                            'sum_same'       => $row->front_sum == $lastSum,
+                            'zone_same'      => $zoneSame,
+                            'cold_numbers'   => $thisCold,
+                            'continue_count' => $row->consecutive_count,
+                            'pos_appear'     => $posAppear,
+                            'low_pos_nums'   => $lowPosNums
+                        ]
+                    ];
+                });
+            break;
 
             /**
              * =========================
@@ -529,4 +618,6 @@ class DltController extends Controller
             'data' => $data
         ]);
     }
+
+    
 }
