@@ -227,7 +227,7 @@ class SsqController extends Controller
 
             /**
              * =========================
-             * 4️⃣ 胆码（不加权）
+             * 4️⃣ 胆码机选（加权版）
              * =========================
              */
             case 'dan_only':
@@ -241,7 +241,6 @@ class SsqController extends Controller
 
                 // -------------------------
                 // 获取上期开奖号码及特征
-                // -------------------------
                 $lastIssue = DB::table('ssq_lotto_history')
                     ->orderByDesc('id')
                     ->first();
@@ -255,68 +254,124 @@ class SsqController extends Controller
 
                 $lastSpan  = $lastIssue->span;
                 $lastSum   = $lastIssue->front_sum;
-                $lastZones = explode(',', $lastIssue->zone_ratio); // ["1","3","2"]
+                $lastZones = explode(',', $lastIssue->zone_ratio);
                 $redCold   = json_decode($lastIssue->red_cold_json, true) ?? [];
-
-                // 找到最大遗漏值
-                $maxCold = $redCold ? max($redCold) : 0;
+                $maxCold   = $redCold ? max($redCold) : 0;
                 $coldNumbers = [];
                 foreach ($redCold as $num => $val) {
-                    if ($val === $maxCold && $val > 0) {
-                        $coldNumbers[] = (int)$num;
-                    }
+                    if ($val === $maxCold && $val > 0) $coldNumbers[] = (int)$num;
                 }
 
                 // -------------------------
-                // 查询符合胆码条件的号码
+                // 获取最近50期每个位置的号码出现次数
+                $posCounts = Cache::remember('ssq_last50_pos_counts', 60, function() {
+                    $last50Issues = DB::table('ssq_lotto_history')
+                        ->orderByDesc('id')
+                        ->limit(50)
+                        ->select(['front1','front2','front3','front4','front5','front6'])
+                        ->get()
+                        ->toArray();
+
+                    $counts = [];
+                    for ($pos = 1; $pos <= 6; $pos++) $counts[$pos] = [];
+
+                    foreach ($last50Issues as $issue) {
+                        for ($pos = 1; $pos <= 6; $pos++) {
+                            $num = $issue->{'front'.$pos};
+                            if (!isset($counts[$pos][$num])) $counts[$pos][$num] = 0;
+                            $counts[$pos][$num]++;
+                        }
+                    }
+                    return $counts;
+                });
+
                 // -------------------------
-                $query = LottoSsqRecommendation::whereNull('ip');
+                // 查询符合胆码条件的号码 + 权重 3 或 4，若不足再用权重5
+                $query = LottoSsqRecommendation::whereNull('ip')
+                    ->whereIn('weight',[3,4]);
+
                 foreach ($dan as $num) {
-                    $query->where(function ($q) use ($num) {
-                        $q->orWhere('front_1', $num)
-                        ->orWhere('front_2', $num)
-                        ->orWhere('front_3', $num)
-                        ->orWhere('front_4', $num)
-                        ->orWhere('front_5', $num)
-                        ->orWhere('front_6', $num);
+                    $query->where(function($q) use ($num) {
+                        $q->orWhere('front_1',$num)
+                        ->orWhere('front_2',$num)
+                        ->orWhere('front_3',$num)
+                        ->orWhere('front_4',$num)
+                        ->orWhere('front_5',$num)
+                        ->orWhere('front_6',$num);
                     });
                 }
 
-                // 取随机号码并附加特征
                 $results = $query->inRandomOrder()
                     ->take($take)
                     ->select([
                         'id','front_numbers','back_numbers','span','front_sum',
-                        'zone1_count','zone2_count','zone3_count','consecutive_count'
+                        'zone1_count','zone2_count','zone3_count','consecutive_count',
+                        'front_1','front_2','front_3','front_4','front_5','front_6'
                     ])
                     ->get();
 
-                $randomData = $results->map(function($row) use ($lastSpan, $lastSum, $lastZones, $coldNumbers) {
-                    $reds = array_map('intval', explode(',', $row->front_numbers));
+                // 如果不足，再从权重5补足
+                if ($results->count() < $take) {
+                    $remaining = $take - $results->count();
+                    $extra = LottoSsqRecommendation::whereNull('ip')
+                        ->where('weight',5);
+                    foreach ($dan as $num) {
+                        $extra->where(function($q) use ($num) {
+                            $q->orWhere('front_1',$num)
+                            ->orWhere('front_2',$num)
+                            ->orWhere('front_3',$num)
+                            ->orWhere('front_4',$num)
+                            ->orWhere('front_5',$num)
+                            ->orWhere('front_6',$num);
+                        });
+                    }
+                    $results = $results->merge(
+                        $extra->inRandomOrder()
+                            ->take($remaining)
+                            ->select([
+                                'id','front_numbers','back_numbers','span','front_sum',
+                                'zone1_count','zone2_count','zone3_count','consecutive_count',
+                                'front_1','front_2','front_3','front_4','front_5','front_6'
+                            ])
+                            ->get()
+                    );
+                }
 
-                    // 本注号码中属于冷号的
+                // -------------------------
+                // 构建返回数据
+                $randomData = $results->map(function($row) use ($lastSpan,$lastSum,$lastZones,$coldNumbers,$posCounts) {
+                    $reds = array_map('intval', explode(',', $row->front_numbers));
                     $thisCold = array_values(array_intersect($reds, $coldNumbers));
 
-                    // 区间比同上期
                     $zoneSame = ($row->zone1_count == $lastZones[0] &&
                                 $row->zone2_count == $lastZones[1] &&
                                 $row->zone3_count == $lastZones[2]);
+
+                    $posAppear = [];
+                    $lowPosNums = [];
+                    for ($pos=1; $pos<=6; $pos++){
+                        $num = $reds[$pos-1];
+                        $count = $posCounts[$pos][$num] ?? 0;
+                        $posAppear[] = $count;
+                        if ($count === 0) $lowPosNums[] = $num;
+                    }
 
                     return [
                         'id' => $row->id,
                         'front_numbers' => $row->front_numbers,
                         'back_numbers'  => $row->back_numbers,
                         'features' => [
-                            'span_same'    => $row->span == $lastSpan,
-                            'sum_same'     => $row->front_sum == $lastSum,
-                            'zone_same'    => $zoneSame,
-                            'cold_numbers' => $thisCold, // 本注中属于冷号的号码
-                            'continue_count' => $row->consecutive_count
+                            'span_same'      => $row->span == $lastSpan,
+                            'sum_same'       => $row->front_sum == $lastSum,
+                            'zone_same'      => $zoneSame,
+                            'cold_numbers'   => $thisCold,
+                            'continue_count' => $row->consecutive_count,
+                            'pos_appear'     => $posAppear,
+                            'low_pos_nums'   => $lowPosNums
                         ]
                     ];
                 });
-
-                break;
+            break;
 
 
             /**
