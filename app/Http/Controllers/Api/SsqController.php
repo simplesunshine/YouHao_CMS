@@ -194,17 +194,211 @@ class SsqController extends Controller
 
             /**
              * =========================
-             * 2️⃣ 首红优势（不加权）
+             * 2️⃣ 首红优势（加权）
              * =========================
              */
             case 'first_advantage':
-                $randomData = LottoSsqRecommendation::whereNull('ip')
-                    ->whereBetween('front_1', [1,5])
+
+                // =========================
+                // 上期数据（和 normal 共用）
+                // =========================
+                $lastIssue = Cache::remember('ssq_last_issue_features', 60, function() {
+
+                    $last = DB::table('ssq_lotto_history')
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if (!$last) return null;
+
+                    $redCold = json_decode($last->red_cold_json, true) ?? [];
+                    $maxCold = $redCold ? max($redCold) : 0;
+
+                    $coldNumbers = [];
+                    foreach ($redCold as $num => $val) {
+                        if ($val === $maxCold && $val > 0) {
+                            $coldNumbers[] = (int)$num;
+                        }
+                    }
+
+                    return [
+                        'span'       => $last->span,
+                        'front_sum'  => $last->front_sum,
+                        'zone_ratio' => explode(',', $last->zone_ratio),
+                        'cold_numbers' => $coldNumbers
+                    ];
+                });
+
+                if (!$lastIssue) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '暂无历史开奖数据'
+                    ]);
+                }
+
+                // =========================
+                // 统计近50期首红出现次数
+                // =========================
+                $firstCounts = Cache::remember('ssq_last50_first_counts', 60, function() {
+
+                    $last50 = DB::table('ssq_lotto_history')
+                        ->orderByDesc('id')
+                        ->limit(50)
+                        ->pluck('front1')
+                        ->toArray();
+
+                    $counts = [];
+
+                    foreach ($last50 as $num) {
+                        if (!isset($counts[$num])) {
+                            $counts[$num] = 0;
+                        }
+                        $counts[$num]++;
+                    }
+
+                    return $counts;
+                });
+
+                // =========================
+                // 动态排序取 Top5
+                // =========================
+                arsort($firstCounts);
+
+                $topLimit = 5;
+
+                $strongFirst = array_slice(
+                    array_keys($firstCounts),
+                    0,
+                    $topLimit
+                );
+
+                $topFirstDisplay = array_slice(
+                    $firstCounts,
+                    0,
+                    $topLimit,
+                    true
+                );
+
+                if (empty($strongFirst)) {
+                    return response()->json([
+                        'success'=>false,
+                        'message'=>'暂无首红优势号码'
+                    ]);
+                }
+
+                // =========================
+                // 查询推荐库（3/4 优先）
+                // =========================
+                $results = LottoSsqRecommendation::whereNull('ip')
+                    ->whereIn('weight',[3,4])
+                    ->whereIn('front_1', $strongFirst)
                     ->inRandomOrder()
                     ->take($take)
-                    ->select(['id','front_numbers','back_numbers'])
+                    ->select([
+                        'id','front_numbers','back_numbers','span','front_sum',
+                        'zone1_count','zone2_count','zone3_count','consecutive_count',
+                        'front_1','front_2','front_3','front_4','front_5','front_6'
+                    ])
                     ->get();
-                break;
+
+                // 如果3/4没有，再用5
+                if ($results->isEmpty()) {
+                    $results = LottoSsqRecommendation::whereNull('ip')
+                        ->where('weight',5)
+                        ->whereIn('front_1', $strongFirst)
+                        ->inRandomOrder()
+                        ->take($take)
+                        ->select([
+                            'id','front_numbers','back_numbers','span','front_sum',
+                            'zone1_count','zone2_count','zone3_count','consecutive_count',
+                            'front_1','front_2','front_3','front_4','front_5','front_6'
+                        ])
+                        ->get();
+                }
+
+                // =========================
+                // 近50期各位置统计
+                // =========================
+                $posCounts = Cache::remember('ssq_last50_pos_counts', 60, function() {
+
+                    $last50 = DB::table('ssq_lotto_history')
+                        ->orderByDesc('id')
+                        ->limit(50)
+                        ->select(['front1','front2','front3','front4','front5','front6'])
+                        ->get()
+                        ->toArray();
+
+                    $counts = [];
+                    for ($pos=1;$pos<=6;$pos++) {
+                        $counts[$pos] = [];
+                    }
+
+                    foreach ($last50 as $issue){
+                        for ($pos=1;$pos<=6;$pos++){
+                            $num = $issue->{'front'.$pos};
+                            if (!isset($counts[$pos][$num])) {
+                                $counts[$pos][$num] = 0;
+                            }
+                            $counts[$pos][$num]++;
+                        }
+                    }
+
+                    return $counts;
+                });
+
+                // =========================
+                // 构建返回结构（完整 features）
+                // =========================
+                $randomData = $results->map(function($row) use ($lastIssue,$posCounts){
+
+                    $reds = array_map('intval', explode(',', $row->front_numbers));
+
+                    $thisCold = array_values(
+                        array_intersect($reds, $lastIssue['cold_numbers'])
+                    );
+
+                    $zoneSame = (
+                        $row->zone1_count == $lastIssue['zone_ratio'][0] &&
+                        $row->zone2_count == $lastIssue['zone_ratio'][1] &&
+                        $row->zone3_count == $lastIssue['zone_ratio'][2]
+                    );
+
+                    $posAppear = [];
+                    $lowPosNums = [];
+
+                    for ($pos=1;$pos<=6;$pos++){
+                        $num = $row->{'front_'.$pos};
+                        $count = $posCounts[$pos][$num] ?? 0;
+
+                        $posAppear[] = $count;
+
+                        if ($count === 0) {
+                            $lowPosNums[] = $num;
+                        }
+                    }
+
+                    return [
+                        'id'=>$row->id,
+                        'front_numbers'=>$row->front_numbers,
+                        'back_numbers'=>$row->back_numbers,
+                        'features'=>[
+                            'span_same'=>$row->span==$lastIssue['span'],
+                            'sum_same'=>$row->front_sum==$lastIssue['front_sum'],
+                            'zone_same'=>$zoneSame,
+                            'cold_numbers'=>$thisCold,
+                            'continue_count'=>$row->consecutive_count,
+                            'pos_appear'=>$posAppear,
+                            'low_pos_nums'=>$lowPosNums
+                        ]
+                    ];
+                });
+
+                return response()->json([
+                    'success'=>true,
+                    'data'=>$randomData,
+                    'first_advantage_top'=>$topFirstDisplay
+                ]);
+
+            break;
 
             /**
              * =========================
