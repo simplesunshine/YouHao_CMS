@@ -508,7 +508,7 @@ class SsqController extends Controller
                 if ($results->count() < $take) {
                     $remaining = $take - $results->count();
                     $extra = LottoSsqRecommendation::whereNull('ip')
-                        ->where('weight',5);
+                        ->whereIn('weight',[5,0,1,2]);
                     foreach ($dan as $num) {
                         $extra->where(function($q) use ($num) {
                             $q->orWhere('front_1',$num)
