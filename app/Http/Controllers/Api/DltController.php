@@ -194,20 +194,218 @@ class DltController extends Controller
             break;
 
 
-
             /**
              * =========================
-             * 2️⃣ 首红优势（不使用权重）
+             * 大乐透首红优势（首位Top5）
              * =========================
              */
             case 'first_advantage':
-                $randomData = LottoDltRecommendation::whereNull('ip')
-                    ->whereBetween('front_1', [1,7])
+
+                // =============================
+                // ⭐ Top5 首红统计（缓存）
+                // =============================
+                $topAdv = Cache::remember('dlt_first_adv_top5',60,function(){
+
+                    $issues = DB::table('dlt_lotto_history')
+                        ->orderByDesc('id')
+                        ->limit(50)
+                        ->pluck('front1');
+
+                    $map=[];
+
+                    foreach($issues as $num){
+                        if(!isset($map[$num])) $map[$num]=0;
+                        $map[$num]++;
+                    }
+
+                    arsort($map);
+
+                    return array_slice($map,0,5,true);
+                });
+
+                $topFirstNumbers = array_keys($topAdv);
+
+                if(empty($topFirstNumbers)){
+                    return response()->json([
+                        'success'=>false,
+                        'message'=>'暂无首红统计'
+                    ]);
+                }
+
+                // =============================
+                // ⭐ 上期特征缓存
+                // =============================
+
+                $lastIssue = Cache::remember('dlt_last_issue_features',60,function(){
+
+                    $last = DB::table('dlt_lotto_history')
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if(!$last) return null;
+
+                    $redCold = json_decode($last->red_cold_json,true) ?? [];
+
+                    $maxCold = $redCold ? max($redCold) : 0;
+
+                    $coldNumbers=[];
+
+                    foreach($redCold as $num=>$val){
+                        if($val==$maxCold && $val>0){
+                            $coldNumbers[]=(int)$num;
+                        }
+                    }
+
+                    return [
+                        'span'=>$last->span,
+                        'front_sum'=>$last->front_sum,
+                        'zone_ratio'=>explode(',',$last->zone_ratio),
+                        'cold_numbers'=>$coldNumbers
+                    ];
+                });
+
+                if(!$lastIssue){
+                    return response()->json([
+                        'success'=>false,
+                        'message'=>'暂无历史数据'
+                    ]);
+                }
+
+                $lastSpan=$lastIssue['span'];
+                $lastSum=$lastIssue['front_sum'];
+                $lastZones=$lastIssue['zone_ratio'];
+                $coldNumbers=$lastIssue['cold_numbers'];
+
+                // =============================
+                // ⭐ 近50期位置统计缓存
+                // =============================
+
+                $posCounts = Cache::remember('dlt_last50_pos_counts',60,function(){
+
+                    $rows = DB::table('dlt_lotto_history')
+                        ->orderByDesc('id')
+                        ->limit(50)
+                        ->select([
+                            'front1','front2','front3','front4','front5'
+                        ])
+                        ->get();
+
+                    $counts=[];
+
+                    for($pos=1;$pos<=5;$pos++){
+                        $counts[$pos]=[];
+                    }
+
+                    foreach($rows as $row){
+                        for($pos=1;$pos<=5;$pos++){
+
+                            $num=$row->{'front'.$pos};
+
+                            if(!isset($counts[$pos][$num])){
+                                $counts[$pos][$num]=0;
+                            }
+
+                            $counts[$pos][$num]++;
+                        }
+                    }
+
+                    return $counts;
+                });
+
+                // =============================
+                // ⭐ 权重双层筛选（重点）
+                // =============================
+
+                $results = LottoDltRecommendation::whereNull('ip')
+                    ->whereIn('front_1',$topFirstNumbers)
+                    ->whereIn('weight',[4,3,2])
                     ->inRandomOrder()
                     ->take($take)
-                    ->select(['id','front_numbers','back_numbers'])
                     ->get();
-                break;
+
+                if($results->isEmpty()){
+
+                    $results = LottoDltRecommendation::whereNull('ip')
+                        ->whereIn('front_1',$topFirstNumbers)
+                        ->whereIn('weight',[5,1])
+                        ->inRandomOrder()
+                        ->take($take)
+                        ->get();
+                }
+
+                if($results->isEmpty()){
+                    return response()->json([
+                        'success'=>false,
+                        'message'=>'暂无推荐号码'
+                    ]);
+                }
+
+                // =============================
+                // ⭐ 构建特征返回
+                // =============================
+
+                $randomData=$results->map(function($row)
+                use ($lastSpan,$lastSum,$lastZones,$coldNumbers,$posCounts){
+
+                    $reds=array_map('intval',explode(',',$row->front_numbers));
+
+                    $thisCold=array_values(array_intersect($reds,$coldNumbers));
+
+                    $zoneSame =
+                        isset($lastZones[0],$lastZones[1],$lastZones[2]) &&
+                        $row->zone1_count==$lastZones[0] &&
+                        $row->zone2_count==$lastZones[1] &&
+                        $row->zone3_count==$lastZones[2];
+
+                    $posAppear=[];
+                    $lowPosNums=[];
+
+                    for($pos=1;$pos<=5;$pos++){
+
+                        $num=$row->{'front_'.$pos};
+
+                        $count=$posCounts[$pos][$num] ?? 0;
+
+                        $posAppear[]=$count;
+
+                        if($count===0){
+                            $lowPosNums[]=$num;
+                        }
+                    }
+
+                    return [
+                        'id'=>$row->id,
+                        'front_numbers'=>$row->front_numbers,
+                        'back_numbers'=>$row->back_numbers,
+
+                        'features'=>[
+                            'span_same'=>$row->span==$lastSpan,
+                            'sum_same'=>$row->front_sum==$lastSum,
+                            'zone_same'=>$zoneSame,
+                            'cold_numbers'=>$thisCold,
+                            'continue_count'=>$row->consecutive_count,
+                            'pos_appear'=>$posAppear,
+                            'low_pos_nums'=>$lowPosNums
+                        ]
+                    ];
+                });
+
+                LottoDltRecommendation::whereIn(
+                    'id',
+                    $randomData->pluck('id')->toArray()
+                )->update([
+                    'ip'=>$ip,
+                    'mode'=>'first_advantage'
+                ]);
+
+                return response()->json([
+                    'success'=>true,
+                    'data'=>$randomData,
+                    'top'=>$topAdv,
+                    'remain'=>$remaining-$randomData->count()
+                ]);
+
+            break;
 
             /**
              * =========================
