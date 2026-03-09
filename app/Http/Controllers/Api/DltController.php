@@ -130,7 +130,7 @@ class DltController extends Controller
                 $posCounts = Cache::remember('dlt_last50_pos_counts', 60, function() {
                     $last50Issues = DB::table('dlt_lotto_history')
                         ->orderByDesc('id')
-                        ->limit(50)
+                        ->limit(80)
                         ->select(['front1','front2','front3','front4','front5'])
                         ->get()
                         ->toArray();
@@ -208,7 +208,7 @@ class DltController extends Controller
 
                     $issues = DB::table('dlt_lotto_history')
                         ->orderByDesc('id')
-                        ->limit(50)
+                        ->limit(80)
                         ->pluck('front1');
 
                     $map=[];
@@ -284,7 +284,7 @@ class DltController extends Controller
 
                     $rows = DB::table('dlt_lotto_history')
                         ->orderByDesc('id')
-                        ->limit(50)
+                        ->limit(80)
                         ->select([
                             'front1','front2','front3','front4','front5'
                         ])
@@ -492,7 +492,7 @@ class DltController extends Controller
                 $posCounts = Cache::remember('dlt_last50_pos_counts', 60, function() {
                     $last50Issues = DB::table('dlt_lotto_history')
                         ->orderByDesc('id')
-                        ->limit(50)
+                        ->limit(80)
                         ->select(['front1','front2','front3','front4','front5'])
                         ->get()
                         ->toArray();
