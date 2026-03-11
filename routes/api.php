@@ -57,6 +57,9 @@ Route::get('/ssq/number-distribution', [SsqController::class, 'numberDistributio
 Route::get('/dlt/number-distribution', [DltController::class, 'numberDistribution']);
 
 
+//获取大乐透最近660期后区次数
+Route::get('/dlt/back-combo-stats', [DltController::class, 'backComboStats']);
+
 
 
 

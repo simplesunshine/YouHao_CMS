@@ -817,5 +817,67 @@ class DltController extends Controller
         ]);
     }
 
+
+    /**
+     * 后区组合出现次数统计
+     * 12选2 = 66组合
+     */
+    public function backComboStats(Request $request)
+    {
+        $periods = (int) $request->input('periods', 660);
+
+        if ($periods <= 0) {
+            $periods = 660;
+        }
+
+        if ($periods > 3000) {
+            $periods = 3000;
+        }
+
+        // 获取最近N期后区
+        $history = DB::table('dlt_lotto_history')
+            ->orderByDesc('issue')
+            ->limit($periods)
+            ->get(['back1','back2']);
+
+        if ($history->isEmpty()) {
+            return response()->json([
+                'code' => 200,
+                'data' => []
+            ]);
+        }
+
+        $stats = [];
+
+        foreach ($history as $row) {
+
+            $a = min($row->back1, $row->back2);
+            $b = max($row->back1, $row->back2);
+
+            $key = sprintf('%02d-%02d', $a, $b);
+
+            if (!isset($stats[$key])) {
+                $stats[$key] = [
+                    'combo' => $key,
+                    'n1' => $a,
+                    'n2' => $b,
+                    'count' => 0
+                ];
+            }
+
+            $stats[$key]['count']++;
+        }
+
+        // 排序（出现次数高的在前）
+        usort($stats, function($a, $b) {
+            return $b['count'] <=> $a['count'];
+        });
+
+        return response()->json([
+            'code' => 200,
+            'data' => array_values($stats)
+        ]);
+    }
+
     
 }
