@@ -94,7 +94,7 @@ class SsqController extends Controller
                 // 获取推荐号码
                 // -------------------------
                 $results = LottoSsqRecommendation::whereNull('ip')
-                    ->whereIn('weight', [3,4])
+                    ->whereIn('weight', [0,1,2,3,4,5])
                     ->inRandomOrder()
                     ->take($take)
                     ->select([
@@ -289,7 +289,7 @@ class SsqController extends Controller
                 // 查询推荐库（3/4 优先）
                 // =========================
                 $results = LottoSsqRecommendation::whereNull('ip')
-                    ->whereIn('weight',[3,4])
+                    ->whereIn('weight',[0,1,2,3,4,5])
                     ->whereIn('front_1', $strongFirst)
                     ->inRandomOrder()
                     ->take($take)
@@ -482,7 +482,7 @@ class SsqController extends Controller
                 // -------------------------
                 // 查询符合胆码条件的号码 + 权重 3 或 4，若不足再用权重5
                 $query = LottoSsqRecommendation::whereNull('ip')
-                    ->whereIn('weight',[3,4]);
+                    ->whereIn('weight',[0,1,2,3,4,5]);
 
                 foreach ($dan as $num) {
                     $query->where(function($q) use ($num) {
