@@ -61,7 +61,11 @@ Route::get('/dlt/number-distribution', [DltController::class, 'numberDistributio
 Route::get('/dlt/back-combo-stats', [DltController::class, 'backComboStats']);
 
 
-
+//双色球复式接口
+Route::get('/ssq/fushi/normal_fushi', 'Api\SsqFushiController@normalFushi');
+Route::get('/ssq/fushi/dantuo_fushi', 'Api\SsqFushiController@dantuoFushi');
+Route::get('/ssq/fushi/fixed_kill', 'Api\SsqFushiController@fixedKillFushi');
+Route::get('/ssq/fushi/kill_fushi', 'Api\SsqFushiController@userKillFushi');
 
 
 
