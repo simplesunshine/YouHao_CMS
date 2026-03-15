@@ -68,6 +68,9 @@ Route::get('/ssq/fushi/fixed_kill', 'Api\SsqFushiController@fixedKillFushi');
 Route::get('/ssq/fushi/kill_fushi', 'Api\SsqFushiController@userKillFushi');
 
 
+//大乐透复式接口
+Route::get('/dlt/fushi/normal_fushi', 'Api\DltFushiController@normalFushi');
+
 
 
 
