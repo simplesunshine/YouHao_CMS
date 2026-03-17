@@ -11,7 +11,7 @@ class DltFushiController extends Controller
 {
 
     /**
-     * 双色球普通复式生成（红球+篮球）
+     * 普通复式生成（红球+篮球）
      */
     public function normalFushi(Request $request)
     {
@@ -126,36 +126,42 @@ class DltFushiController extends Controller
     }
 
     /**
-     * 双色球胆拖复式生成
+     * 大乐透胆拖复式生成（前区胆拖 + 后区普通）
      */
     public function dantuoFushi(Request $request)
     {
-        $key = 'ssq_fushi_ip_'.$request->ip();
+        $key = 'dlt_fushi_ip_'.$request->ip();
 
         if (Cache::has($key)) {
             return response()->json(['code'=>400,'msg'=>'操作太频繁']);
         }
 
-        Cache::put($key,1, now()->addSeconds(1)); // 1秒限制
+        Cache::put($key,1,1);
 
-        // 前端传入参数
-        $tuoCount = intval($request->input('red_count', 6));
-        $blueCount = intval($request->input('blue_count', 1));
-        $danCount = intval($request->input('dan_count', 1)); // 胆码数量固定由前端传入
+        // 参数
+        $danCount = intval($request->input('red_dan_count', 1));
+        $tuoCount = intval($request->input('red_tuo_count', 4));
+        $blueCount = intval($request->input('blue_count', 2));
 
-        // 参数合法性验证
-        if ($danCount < 1 || $danCount > 5) {
+        // 校验
+        if ($danCount < 1 || $danCount > 4) {
             return response()->json(['code'=>400,'msg'=>'胆码数量不合法']);
         }
-        if ($tuoCount < 6 || $tuoCount > 20) {
+
+        if ($tuoCount < 2 || $tuoCount > 15) {
             return response()->json(['code'=>400,'msg'=>'拖码数量不合法']);
         }
-        if ($blueCount < 1 || $blueCount > 16) {
-            return response()->json(['code'=>400,'msg'=>'篮球数量不合法']);
+
+        if (($danCount + $tuoCount) < 5) {
+            return response()->json(['code'=>400,'msg'=>'前区总数必须≥5']);
         }
 
-        // 获取遗漏值和上期号码
-        $row = DB::table('ssq_lotto_history')
+        if ($blueCount < 2 || $blueCount > 12) {
+            return response()->json(['code'=>400,'msg'=>'后区数量不合法']);
+        }
+
+        // 获取大乐透历史
+        $row = DB::table('dlt_lotto_history')
             ->select('red_cold_json','front_numbers')
             ->orderByDesc('id')
             ->first();
@@ -165,52 +171,66 @@ class DltFushiController extends Controller
         }
 
         $redOmit = json_decode($row->red_cold_json,true);
-        $lastFront = array_map('intval', explode(',', $row->front_numbers));
 
         $try = 0;
 
         while ($try < 100) {
+
             $try++;
 
-            // 生成胆码
-            $danNums = collect(range(1,33))->shuffle()->take($danCount)->toArray();
-            sort($danNums);
+            // ===== 生成胆码 =====
+            $danNums = collect(range(1,35))
+                ->shuffle()
+                ->take($danCount)
+                ->toArray();
 
-            // 生成拖码（排除胆码）
-            $tuoPool = array_diff(range(1,33), $danNums);
-            $tuoNums = collect($tuoPool)->shuffle()->take($tuoCount)->toArray();
-            sort($tuoNums);
+            // ===== 生成拖码（排除胆码）=====
+            $tuoPool = array_diff(range(1,35), $danNums);
 
-            // 最终红球 = 胆码 + 拖码
+            $tuoNums = collect($tuoPool)
+                ->shuffle()
+                ->take($tuoCount)
+                ->toArray();
+
+            // 合并前区
             $reds = array_merge($danNums, $tuoNums);
             sort($reds);
 
-            // 红球遗漏值
+            // ===== 获取遗漏值 =====
             $redOmits = [];
+
             foreach ($reds as $n) {
                 $redOmits[] = $redOmit[$n] ?? 0;
             }
 
-            // 红球规则校验
-            if (max($redOmits) < 6) continue;
-            if (min($redOmits) > 1) continue;
-            if ((max($reds) - min($reds)) < 11) continue;
+            /* ===== 复用 normalFushi 规则 ===== */
 
-            if (count($reds) <= 10) {
-                $highOmitCount = 0;
-                foreach ($redOmits as $omit) {
-                    if ($omit > 4) $highOmitCount++;
-                }
-                if ($highOmitCount >= 4) continue;
-            }
+            // 规则1：不能全小遗漏
+            if (max($redOmits) <= 2) continue;
 
-            // 篮球随机
-            $blues = collect(range(1,16))->shuffle()->take($blueCount)->sort()->values()->toArray();
+            // 规则2：不能全大遗漏
+            if (min($redOmits) > 2) continue;
 
-            // 存库
-            DB::table('ssq_fushi_records')->insert([
+            // 规则3：跨度
+            if ((max($reds) - min($reds)) < 12) continue;
+
+            // 规则4：必须有质数
+            if (!$this->hasPrime($reds)) continue;
+
+            // ===== 后区 =====
+            $blues = collect(range(1,12))
+                ->shuffle()
+                ->take($blueCount)
+                ->sort()
+                ->values()
+                ->toArray();
+
+            sort($danNums);
+            sort($tuoNums);
+            // ===== 存库 =====
+            DB::table('dlt_fushi_records')->insert([
                 'issue' => $request->input('issue'),
-                'mode' => 'dan',
+                'mode' => 'dantuo',
                 'red_dan' => implode(',', $danNums),
                 'kill_numbers' => '',
                 'red_count' => $tuoCount,
@@ -221,13 +241,13 @@ class DltFushiController extends Controller
                 'created_at' => now()
             ]);
 
-            // 返回前端
+            // ===== 返回 =====
             return response()->json([
                 'code'=>200,
                 'data'=>[
-                    'dan'=>$danNums,
-                    'tuo'=>$tuoNums,
-                    'blue'=>$blues
+                    'dan'  => array_values($danNums),
+                    'tuo'  => array_values($tuoNums),
+                    'blue' => $blues
                 ]
             ]);
         }
