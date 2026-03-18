@@ -68,6 +68,10 @@ Route::get('/ssq/fushi/fixed_kill', 'Api\SsqFushiController@fixedKillFushi');
 Route::get('/ssq/fushi/kill_fushi', 'Api\SsqFushiController@userKillFushi');
 
 
+//双色球2码组合统计次数
+Route::get('/ssq/pair-stats', [SsqController::class, 'pairStats']);
+
+
 //大乐透复式接口
 Route::get('/dlt/fushi/normal_fushi', 'Api\DltFushiController@normalFushi');
 Route::get('/dlt/fushi/dantuo_fushi', 'Api\DltFushiController@dantuoFushi');

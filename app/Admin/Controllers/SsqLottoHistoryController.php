@@ -83,9 +83,10 @@ class SsqLottoHistoryController extends AdminController
         return $grid;
     }
 
-    protected function form()
+
+    public function pairStats()
     {
-        return Form::make(new SsqLottoHistory(), function (Form $form) {
+        return Cache::remember('ssq_pair_stats_100', 3600, function () {
 
             $form->text('issue', '期号')->required();
 
@@ -175,9 +176,11 @@ class SsqLottoHistoryController extends AdminController
                     ]);
             });
 
+            return [
+                'data' => $counts
+            ];
         });
     }
-
 
 
 }

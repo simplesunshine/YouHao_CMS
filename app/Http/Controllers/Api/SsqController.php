@@ -799,4 +799,51 @@ class SsqController extends Controller
             'data' => $data
         ]);
     }   
+
+    public function pairStats()
+    {
+        // 1️⃣ 取最近100期
+        $rows = DB::table('ssq_lotto_history')
+            ->orderByDesc('issue')
+            ->limit(100)
+            ->get();
+
+        $counts = [];
+
+        // 2️⃣ 遍历每一期
+        foreach ($rows as $row) {
+
+            $numbers = [
+                $row->front1,
+                $row->front2,
+                $row->front3,
+                $row->front4,
+                $row->front5,
+                $row->front6
+            ];
+
+            sort($numbers); // 排序保证组合一致
+
+            $len = count($numbers);
+
+            // 3️⃣ 两两组合
+            for ($i = 0; $i < $len - 1; $i++) {
+                for ($j = $i + 1; $j < $len; $j++) {
+
+                    $key = $numbers[$i] . ',' . $numbers[$j];
+
+                    if (!isset($counts[$key])) {
+                        $counts[$key] = 0;
+                    }
+
+                    $counts[$key]++;
+                }
+            }
+        }
+
+        // 4️⃣ 返回数据
+        return response()->json([
+            'data' => $counts
+        ]);
+    }
 }
