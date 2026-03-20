@@ -802,6 +802,7 @@ class SsqController extends Controller
 
     public function pairStats()
     {
+        
         // 1️⃣ 取最近100期
         $rows = DB::table('ssq_lotto_history')
             ->orderByDesc('issue')
