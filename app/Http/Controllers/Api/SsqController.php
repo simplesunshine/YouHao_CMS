@@ -802,49 +802,53 @@ class SsqController extends Controller
 
     public function pairStats()
     {
-        
-        // 1️⃣ 取最近100期
-        $rows = DB::table('ssq_lotto_history')
-            ->orderByDesc('issue')
-            ->limit(100)
-            ->get();
+        return Cache::remember('ssq_pair_stats_100', 3600, function () {
 
-        $counts = [];
+            // 1️⃣ 取最近100期
+            $rows = DB::table('ssq_lotto_history')
+                ->orderByDesc('issue')
+                ->limit(100)
+                ->get();
 
-        // 2️⃣ 遍历每一期
-        foreach ($rows as $row) {
+            $counts = [];
 
-            $numbers = [
-                $row->front1,
-                $row->front2,
-                $row->front3,
-                $row->front4,
-                $row->front5,
-                $row->front6
-            ];
+            // 2️⃣ 遍历每一期
+            foreach ($rows as $row) {
 
-            sort($numbers); // 排序保证组合一致
+                $numbers = [
+                    $row->front1,
+                    $row->front2,
+                    $row->front3,
+                    $row->front4,
+                    $row->front5,
+                    $row->front6
+                ];
 
-            $len = count($numbers);
+                sort($numbers); // 排序保证组合一致
 
-            // 3️⃣ 两两组合
-            for ($i = 0; $i < $len - 1; $i++) {
-                for ($j = $i + 1; $j < $len; $j++) {
+                $len = count($numbers);
 
-                    $key = $numbers[$i] . ',' . $numbers[$j];
+                // 3️⃣ 两两组合
+                for ($i = 0; $i < $len - 1; $i++) {
+                    for ($j = $i + 1; $j < $len; $j++) {
 
-                    if (!isset($counts[$key])) {
-                        $counts[$key] = 0;
+                        $key = $numbers[$i] . ',' . $numbers[$j];
+
+                        if (!isset($counts[$key])) {
+                            $counts[$key] = 0;
+                        }
+
+                        $counts[$key]++;
                     }
-
-                    $counts[$key]++;
                 }
             }
-        }
 
-        // 4️⃣ 返回数据
-        return response()->json([
-            'data' => $counts
-        ]);
+            // 4️⃣ 返回数据
+            return response()->json([
+                'data' => $counts
+            ]);
+
+        });
     }
+   
 }
