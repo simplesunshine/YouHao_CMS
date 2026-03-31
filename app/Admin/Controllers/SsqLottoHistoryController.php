@@ -84,6 +84,103 @@ class SsqLottoHistoryController extends AdminController
     }
 
 
+    // public function form()
+    // {
+    //     return Form::make(new SsqLottoHistory(), function (Form $form) {
+
+    //         $form->text('issue', '期号')->required();
+
+    //         // 红球
+    //         $form->number('front1', '红球1')->required();
+    //         $form->number('front2', '红球2')->required();
+    //         $form->number('front3', '红球3')->required();
+    //         $form->number('front4', '红球4')->required();
+    //         $form->number('front5', '红球5')->required();
+    //         $form->number('front6', '红球6')->required();
+
+    //         // 蓝球
+    //         $form->number('back', '蓝球')->required();
+
+    //         // 把需要保存但不让用户编辑的字段都声明为 hidden
+    //         $form->hidden('front_numbers');
+    //         $form->hidden('back_numbers');
+    //         $form->hidden('front_sum');
+    //         $form->hidden('span');
+    //         $form->hidden('zone_ratio');
+    //         $form->hidden('red_cold_json'); // 保存冷号 json
+    //         $form->hidden('odd_count');
+    //         $form->hidden('even_count');
+
+    //         $form->number('match_red')->min(0);
+    //         $form->number('match_blue')->min(0);
+    //         $form->number('weights');
+
+    //         $form->saving(function (Form $form) {
+
+    //             $fronts = [
+    //                 (int)$form->front1,
+    //                 (int)$form->front2,
+    //                 (int)$form->front3,
+    //                 (int)$form->front4,
+    //                 (int)$form->front5,
+    //                 (int)$form->front6,
+    //             ];
+
+    //             sort($fronts);
+
+    //             // 写到 model 上，确保会保存
+    //             $form->model()->front_numbers = implode(',', $fronts);
+    //             $form->model()->back_numbers  = (string)(int)$form->back;
+
+    //             // 和值 / 跨度
+    //             $form->model()->front_sum = array_sum($fronts);
+    //             $form->model()->span      = max($fronts) - min($fronts);
+
+    //             // 区间比
+    //             $zones = [0, 0, 0];
+    //             foreach ($fronts as $n) {
+    //                 if ($n <= 11)      $zones[0]++;
+    //                 elseif ($n <= 22)  $zones[1]++;
+    //                 else               $zones[2]++;
+    //             }
+    //             $form->model()->zone_ratio = implode(',', $zones);
+
+    //             // 奇偶数
+    //             $odd = 0;
+    //             foreach ($fronts as $n) {
+    //                 if ($n % 2 === 1) $odd++;
+    //             }
+    //             $form->model()->odd_count  = $odd;
+    //             $form->model()->even_count = 6 - $odd;
+    //         });
+
+    //         // 保存后：算 red_cold_json（用 id）
+    //         $form->saved(function (Form $form) {
+
+    //             $currentId = $form->model()->id;
+
+    //             $cold = [];
+
+    //             for ($n = 1; $n <= 33; $n++) {
+    //                 $lastId = DB::table('ssq_lotto_history')
+    //                     ->whereRaw('? IN (front1,front2,front3,front4,front5,front6)', [$n])
+    //                     ->max('id');
+
+    //                 $cold[$n] = $lastId ? ($currentId - $lastId) : $currentId;
+    //             }
+
+    //             DB::table('ssq_lotto_history')
+    //                 ->where('id', $currentId)
+    //                 ->update([
+    //                     'red_cold_json' => json_encode($cold, JSON_UNESCAPED_UNICODE)
+    //                 ]);
+    //         });
+
+    //     });
+    // }
+
+
+
     public function form()
     {
         return Form::make(new SsqLottoHistory(), function (Form $form) {
@@ -155,29 +252,92 @@ class SsqLottoHistoryController extends AdminController
             });
 
             // 保存后：算 red_cold_json（用 id）
-            $form->saved(function (Form $form) {
-
+            $form->saved(function ($form) {
                 $currentId = $form->model()->id;
 
-                $cold = [];
+                // 当前注号码
+                $currentNums = [
+                    1 => (int)$form->model()->front1,
+                    2 => (int)$form->model()->front2,
+                    3 => (int)$form->model()->front3,
+                    4 => (int)$form->model()->front4,
+                    5 => (int)$form->model()->front5,
+                    6 => (int)$form->model()->front6,
+                ];
 
+                // -------------------------
+                // 0) 可选：如果没有当前索引映射，直接用 id 差法（更简单）
+                // 注意：如果你确实会删除历史记录或 id 不连续，请使用全表索引映射方案
+                // -------------------------
+                // 获取所有历史 id -> index 映射（稳健）
+                $allIds = DB::table('ssq_lotto_history')
+                    ->orderBy('id')
+                    ->pluck('id')
+                    ->toArray();
+                $idIndex = [];
+                foreach ($allIds as $index => $id) $idIndex[$id] = $index + 1;
+                $currentIndex = $idIndex[$currentId] ?? null;
+
+                // -------------------------
+                // 1) 计算 red_cold_json（每个号码距上次出现的期数）
+                //    cold: number => missPeriods
+                // -------------------------
+                $cold = [];
                 for ($n = 1; $n <= 33; $n++) {
                     $lastId = DB::table('ssq_lotto_history')
                         ->whereRaw('? IN (front1,front2,front3,front4,front5,front6)', [$n])
-                        ->max('id');
+                        ->orderByDesc('id')
+                        ->value('id');
 
-                    $cold[$n] = $lastId ? ($currentId - $lastId) : $currentId;
+                    if ($lastId && isset($idIndex[$lastId]) && $currentIndex !== null) {
+                        $cold[$n] = $currentIndex - $idIndex[$lastId];
+                    } else {
+                        // 从未出现或映射缺失 -> 视为从第1期未出现到当前（即 currentIndex）
+                        $cold[$n] = $currentIndex !== null ? $currentIndex : 0;
+                    }
+                }
+                $maxMiss = max($cold);
+                $maxMissNums = [];
+                foreach ($currentNums as $pos => $num) {
+                    if (($cold[$num] ?? 0) == $maxMiss && $maxMiss > 0) {
+                        $maxMissNums[] = $num;
+                    }
                 }
 
+                // -------------------------
+                // 2) 计算位置50期未出现的号码
+                // -------------------------
+                $last50 = DB::table('ssq_lotto_history')
+                    ->where('id', '<', $currentId)
+                    ->orderByDesc('id')
+                    ->limit(50)
+                    ->get(['front1','front2','front3','front4','front5','front6']);
+
+                $pos50Miss = [];
+                foreach ($currentNums as $pos => $num) {
+                    $found = false;
+                    foreach ($last50 as $row) {
+                        if ((int)$row->{'front'.$pos} === $num) {
+                            $found = true;
+                            break;
+                        }
+                    }
+                    $pos50Miss[$pos] = $found ? [] : [$num];
+                }
+
+                // -------------------------
+                // 3) 保存到数据库
+                // -------------------------
                 DB::table('ssq_lotto_history')
                     ->where('id', $currentId)
                     ->update([
-                        'red_cold_json' => json_encode($cold, JSON_UNESCAPED_UNICODE)
+                        'red_cold_json' => json_encode($cold, JSON_UNESCAPED_UNICODE),
+                        'red_max_miss_json' => json_encode($maxMissNums, JSON_UNESCAPED_UNICODE),
+                        'red_position_50_miss_json' => json_encode($pos50Miss, JSON_UNESCAPED_UNICODE),
                     ]);
             });
 
         });
     }
-
 
 }
