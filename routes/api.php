@@ -76,6 +76,9 @@ Route::get('/ssq/pair-stats', [SsqController::class, 'pairStats']);
 Route::get('/dlt/fushi/normal_fushi', 'Api\DltFushiController@normalFushi');
 Route::get('/dlt/fushi/dantuo_fushi', 'Api\DltFushiController@dantuoFushi');
 
+//大乐透2码组合统计次数
+Route::get('/dlt/pair-stats', [DltController::class, 'pairStats']);
+
 
 
 
