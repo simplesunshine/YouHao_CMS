@@ -255,6 +255,7 @@ class SsqLottoHistoryController extends AdminController
             $form->saved(function ($form) {
                 $currentId = $form->model()->id;
 
+                // 当前注号码
                 $currentNums = [
                     1 => (int)$form->model()->front1,
                     2 => (int)$form->model()->front2,
@@ -265,20 +266,37 @@ class SsqLottoHistoryController extends AdminController
                 ];
 
                 // -------------------------
-                // 1) 计算冷号（每个号码距离上次出现的期数）
+                // 全表索引映射（确保遗漏期数不受 id 跳号影响）
+                // -------------------------
+                $allIds = DB::table('ssq_lotto_history')
+                    ->orderBy('id')
+                    ->pluck('id')
+                    ->toArray();
+
+                $idIndex = [];
+                foreach ($allIds as $idx => $id) {
+                    $idIndex[$id] = $idx + 1; // 序号从1开始
+                }
+
+                $currentIndex = $idIndex[$currentId] ?? null;
+
+                // -------------------------
+                // 计算红球冷号
                 // -------------------------
                 $cold = [];
                 for ($n = 1; $n <= 33; $n++) {
                     $lastId = DB::table('ssq_lotto_history')
-                        ->where('id', '<', $currentId)       // 排除当前期
+                        ->where('id', '<', $currentId) // 排除当前期
                         ->whereRaw('? IN (front1,front2,front3,front4,front5,front6)', [$n])
                         ->orderByDesc('id')
                         ->value('id');
 
-                    $cold[$n] = $lastId ? ($currentId - 1) - $lastId : $currentId;
+                    $cold[$n] = $lastId ? ($currentIndex - $idIndex[$lastId]) - 1 : $currentIndex;
                 }
 
-                // 最大遗漏号码
+                // -------------------------
+                // 最大遗漏号码（灰色）
+                // -------------------------
                 $maxMiss = max($cold);
                 $maxMissNums = [];
                 foreach ($currentNums as $num) {
@@ -288,10 +306,10 @@ class SsqLottoHistoryController extends AdminController
                 }
 
                 // -------------------------
-                // 2) 计算位置50期未出现（黑色）
+                // 计算位置50期未出现（黑色）
                 // -------------------------
                 $last50 = DB::table('ssq_lotto_history')
-                    ->where('id', '<', $currentId)
+                    ->where('id', '<', $currentId) // 排除当前期
                     ->orderByDesc('id')
                     ->limit(50)
                     ->get(['front1','front2','front3','front4','front5','front6']);
@@ -309,7 +327,7 @@ class SsqLottoHistoryController extends AdminController
                 }
 
                 // -------------------------
-                // 3) 保存到数据库
+                // 保存到数据库
                 // -------------------------
                 DB::table('ssq_lotto_history')
                     ->where('id', $currentId)
