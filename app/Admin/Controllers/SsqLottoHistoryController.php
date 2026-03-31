@@ -255,7 +255,6 @@ class SsqLottoHistoryController extends AdminController
             $form->saved(function ($form) {
                 $currentId = $form->model()->id;
 
-                // 当前注号码
                 $currentNums = [
                     1 => (int)$form->model()->front1,
                     2 => (int)$form->model()->front2,
@@ -266,46 +265,30 @@ class SsqLottoHistoryController extends AdminController
                 ];
 
                 // -------------------------
-                // 0) 可选：如果没有当前索引映射，直接用 id 差法（更简单）
-                // 注意：如果你确实会删除历史记录或 id 不连续，请使用全表索引映射方案
-                // -------------------------
-                // 获取所有历史 id -> index 映射（稳健）
-                $allIds = DB::table('ssq_lotto_history')
-                    ->orderBy('id')
-                    ->pluck('id')
-                    ->toArray();
-                $idIndex = [];
-                foreach ($allIds as $index => $id) $idIndex[$id] = $index + 1;
-                $currentIndex = $idIndex[$currentId] ?? null;
-
-                // -------------------------
-                // 1) 计算 red_cold_json（每个号码距上次出现的期数）
-                //    cold: number => missPeriods
+                // 1) 计算冷号（每个号码距离上次出现的期数）
                 // -------------------------
                 $cold = [];
                 for ($n = 1; $n <= 33; $n++) {
                     $lastId = DB::table('ssq_lotto_history')
+                        ->where('id', '<', $currentId)       // 排除当前期
                         ->whereRaw('? IN (front1,front2,front3,front4,front5,front6)', [$n])
                         ->orderByDesc('id')
                         ->value('id');
 
-                    if ($lastId && isset($idIndex[$lastId]) && $currentIndex !== null) {
-                        $cold[$n] = $currentIndex - $idIndex[$lastId];
-                    } else {
-                        // 从未出现或映射缺失 -> 视为从第1期未出现到当前（即 currentIndex）
-                        $cold[$n] = $currentIndex !== null ? $currentIndex : 0;
-                    }
+                    $cold[$n] = $lastId ? $currentId - $lastId : $currentId;
                 }
+
+                // 最大遗漏号码
                 $maxMiss = max($cold);
                 $maxMissNums = [];
-                foreach ($currentNums as $pos => $num) {
-                    if (($cold[$num] ?? 0) == $maxMiss && $maxMiss > 0) {
+                foreach ($currentNums as $num) {
+                    if (($cold[$num] ?? 0) === $maxMiss && $maxMiss > 0) {
                         $maxMissNums[] = $num;
                     }
                 }
 
                 // -------------------------
-                // 2) 计算位置50期未出现的号码
+                // 2) 计算位置50期未出现（黑色）
                 // -------------------------
                 $last50 = DB::table('ssq_lotto_history')
                     ->where('id', '<', $currentId)
@@ -332,7 +315,7 @@ class SsqLottoHistoryController extends AdminController
                     ->where('id', $currentId)
                     ->update([
                         'red_cold_json' => json_encode($cold, JSON_UNESCAPED_UNICODE),
-                        'red_max_miss_json' => json_encode($maxMissNums, JSON_UNESCAPED_UNICODE),
+                        'red_max_miss_json' => json_encode(array_values($maxMissNums), JSON_UNESCAPED_UNICODE),
                         'red_position_50_miss_json' => json_encode($pos50Miss, JSON_UNESCAPED_UNICODE),
                     ]);
             });
