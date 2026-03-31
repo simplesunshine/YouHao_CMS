@@ -275,7 +275,7 @@ class SsqLottoHistoryController extends AdminController
                         ->orderByDesc('id')
                         ->value('id');
 
-                    $cold[$n] = $lastId ? $currentId - $lastId : $currentId;
+                    $cold[$n] = $lastId ? ($currentId - 1) - $lastId : $currentId;
                 }
 
                 // 最大遗漏号码
