@@ -110,7 +110,7 @@ class OpenResultController extends Controller
                     : [],
 
                 // 80期未出号码（按位置）
-                'red_80_miss_position' => $item->red_position_50_miss_json
+                'red_80_miss_position' => $item->red_position_80_miss_json
                     ? json_decode($item->red_position_80_miss_json, true)
                     : new \stdClass(),
             ];
