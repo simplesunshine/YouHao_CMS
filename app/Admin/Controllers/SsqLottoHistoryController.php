@@ -311,7 +311,7 @@ class SsqLottoHistoryController extends AdminController
                 $last50 = DB::table('ssq_lotto_history')
                     ->where('id', '<', $currentId) // 排除当前期
                     ->orderByDesc('id')
-                    ->limit(50)
+                    ->limit(80)
                     ->get(['front1','front2','front3','front4','front5','front6']);
 
                 $pos50Miss = [];
@@ -334,7 +334,7 @@ class SsqLottoHistoryController extends AdminController
                     ->update([
                         'red_cold_json' => json_encode($cold, JSON_UNESCAPED_UNICODE),
                         'red_max_miss_json' => json_encode(array_values($maxMissNums), JSON_UNESCAPED_UNICODE),
-                        'red_position_50_miss_json' => json_encode($pos50Miss, JSON_UNESCAPED_UNICODE),
+                        'red_position_80_miss_json' => json_encode($pos50Miss, JSON_UNESCAPED_UNICODE),
                     ]);
             });
 
