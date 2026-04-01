@@ -121,12 +121,12 @@ class SsqController extends Controller
                 }
 
                 // -------------------------
-                // 获取最近50期每个位置的号码出现次数（缓存1分钟）
+                // 获取最近80期每个位置的号码出现次数（缓存1分钟）
                 // -------------------------
-                $posCounts = Cache::remember('ssq_last50_pos_counts', 60, function() {
-                    $last50Issues = DB::table('ssq_lotto_history')
+                $posCounts = Cache::remember('ssq_last80_pos_counts', 60, function() {
+                    $last80Issues = DB::table('ssq_lotto_history')
                         ->orderByDesc('id')
-                        ->limit(50)
+                        ->limit(80)
                         ->select(['front1','front2','front3','front4','front5','front6'])
                         ->get()
                         ->toArray();
@@ -134,7 +134,7 @@ class SsqController extends Controller
                     $counts = [];
                     for ($pos = 1; $pos <= 6; $pos++) $counts[$pos] = [];
 
-                    foreach ($last50Issues as $issue) {
+                    foreach ($last80Issues as $issue) {
                         for ($pos = 1; $pos <= 6; $pos++) {
                             $num = $issue->{'front'.$pos};
                             if (!isset($counts[$pos][$num])) $counts[$pos][$num] = 0;
@@ -161,7 +161,7 @@ class SsqController extends Controller
                                 $row->zone3_count == $lastZones[2]);
 
                     // -------------------------
-                    // 计算位置近50期出现次数
+                    // 计算位置近80期出现次数
                     // -------------------------
                     $posAppear = [];
                     $lowPosNums = [];
@@ -236,19 +236,19 @@ class SsqController extends Controller
                 }
 
                 // =========================
-                // 统计近50期首红出现次数
+                // 统计近80期首红出现次数
                 // =========================
-                $firstCounts = Cache::remember('ssq_last50_first_counts', 60, function() {
+                $firstCounts = Cache::remember('ssq_last80_first_counts', 60, function() {
 
-                    $last50 = DB::table('ssq_lotto_history')
+                    $last80 = DB::table('ssq_lotto_history')
                         ->orderByDesc('id')
-                        ->limit(50)
+                        ->limit(80)
                         ->pluck('front1')
                         ->toArray();
 
                     $counts = [];
 
-                    foreach ($last50 as $num) {
+                    foreach ($last80 as $num) {
                         if (!isset($counts[$num])) {
                             $counts[$num] = 0;
                         }
@@ -316,13 +316,13 @@ class SsqController extends Controller
                 }
 
                 // =========================
-                // 近50期各位置统计
+                // 近80期各位置统计
                 // =========================
-                $posCounts = Cache::remember('ssq_last50_pos_counts', 60, function() {
+                $posCounts = Cache::remember('ssq_last80_pos_counts', 60, function() {
 
-                    $last50 = DB::table('ssq_lotto_history')
+                    $last80 = DB::table('ssq_lotto_history')
                         ->orderByDesc('id')
-                        ->limit(50)
+                        ->limit(80)
                         ->select(['front1','front2','front3','front4','front5','front6'])
                         ->get()
                         ->toArray();
@@ -332,7 +332,7 @@ class SsqController extends Controller
                         $counts[$pos] = [];
                     }
 
-                    foreach ($last50 as $issue){
+                    foreach ($last80 as $issue){
                         for ($pos=1;$pos<=6;$pos++){
                             $num = $issue->{'front'.$pos};
                             if (!isset($counts[$pos][$num])) {
@@ -457,11 +457,11 @@ class SsqController extends Controller
                 }
 
                 // -------------------------
-                // 获取最近50期每个位置的号码出现次数
-                $posCounts = Cache::remember('ssq_last50_pos_counts', 60, function() {
-                    $last50Issues = DB::table('ssq_lotto_history')
+                // 获取最近80期每个位置的号码出现次数
+                $posCounts = Cache::remember('ssq_last80_pos_counts', 60, function() {
+                    $last80Issues = DB::table('ssq_lotto_history')
                         ->orderByDesc('id')
-                        ->limit(50)
+                        ->limit(80)
                         ->select(['front1','front2','front3','front4','front5','front6'])
                         ->get()
                         ->toArray();
@@ -469,7 +469,7 @@ class SsqController extends Controller
                     $counts = [];
                     for ($pos = 1; $pos <= 6; $pos++) $counts[$pos] = [];
 
-                    foreach ($last50Issues as $issue) {
+                    foreach ($last80Issues as $issue) {
                         for ($pos = 1; $pos <= 6; $pos++) {
                             $num = $issue->{'front'.$pos};
                             if (!isset($counts[$pos][$num])) $counts[$pos][$num] = 0;
