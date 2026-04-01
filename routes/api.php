@@ -45,6 +45,8 @@ Route::get('/current-issue', [LotterySettingApiController::class, 'currentIssue'
 Route::get('/open-result/latest', [OpenResultController::class, 'latest']);
 
 Route::get('/ssq-history', [OpenResultController::class, 'ssqHistory']);
+Route::get('/ssq-biaoji-history', [OpenResultController::class, 'ssqBiaojiHistory']);
+
 Route::get('/dlt-history', [OpenResultController::class, 'dltHistory']);
 
 
