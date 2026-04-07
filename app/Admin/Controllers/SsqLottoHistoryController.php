@@ -291,7 +291,7 @@ class SsqLottoHistoryController extends AdminController
                         ->orderByDesc('id')
                         ->value('id');
 
-                    $cold[$n] = $lastId ? ($currentIndex - $idIndex[$lastId]) - 1 : $currentIndex;
+                    $cold[$n] = $lastId ? $currentIndex - $idIndex[$lastId] : $currentIndex;
                 }
 
                 // -------------------------
