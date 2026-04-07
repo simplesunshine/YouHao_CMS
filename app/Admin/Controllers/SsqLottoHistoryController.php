@@ -204,7 +204,6 @@ class SsqLottoHistoryController extends AdminController
             $form->hidden('front_sum');
             $form->hidden('span');
             $form->hidden('zone_ratio');
-            $form->hidden('red_cold_json'); // 保存冷号 json
             $form->hidden('odd_count');
             $form->hidden('even_count');
 
@@ -253,20 +252,21 @@ class SsqLottoHistoryController extends AdminController
 
             // 保存后：算 red_cold_json（用 id）
             $form->saved(function ($form) {
+
                 $currentId = $form->model()->id;
 
-                // 当前注号码
+                // 当前号码（用于历史标记）
                 $currentNums = [
-                    1 => (int)$form->model()->front1,
-                    2 => (int)$form->model()->front2,
-                    3 => (int)$form->model()->front3,
-                    4 => (int)$form->model()->front4,
-                    5 => (int)$form->model()->front5,
-                    6 => (int)$form->model()->front6,
+                    (int)$form->model()->front1,
+                    (int)$form->model()->front2,
+                    (int)$form->model()->front3,
+                    (int)$form->model()->front4,
+                    (int)$form->model()->front5,
+                    (int)$form->model()->front6,
                 ];
 
                 // -------------------------
-                // 全表索引映射（确保遗漏期数不受 id 跳号影响）
+                // 全表索引（防止ID跳号）
                 // -------------------------
                 $allIds = DB::table('ssq_lotto_history')
                     ->orderBy('id')
@@ -275,66 +275,96 @@ class SsqLottoHistoryController extends AdminController
 
                 $idIndex = [];
                 foreach ($allIds as $idx => $id) {
-                    $idIndex[$id] = $idx + 1; // 序号从1开始
+                    $idIndex[$id] = $idx + 1;
                 }
 
-                $currentIndex = $idIndex[$currentId] ?? null;
+                $currentIndex = $idIndex[$currentId] ?? 0;
 
                 // -------------------------
-                // 计算红球冷号
+                // ① 当前期最大遗漏（用于历史展示）
                 // -------------------------
-                $cold = [];
+                $currentCold = [];
+
                 for ($n = 1; $n <= 33; $n++) {
+
                     $lastId = DB::table('ssq_lotto_history')
-                        ->where('id', '<', $currentId) // 排除当前期
+                        ->where('id', '<', $currentId) // ❌ 不包含当前期
                         ->whereRaw('? IN (front1,front2,front3,front4,front5,front6)', [$n])
                         ->orderByDesc('id')
                         ->value('id');
 
-                    $cold[$n] = $lastId ? $currentIndex - $idIndex[$lastId] : $currentIndex;
+                    $currentCold[$n] = $lastId
+                        ? $currentIndex - $idIndex[$lastId]
+                        : $currentIndex;
                 }
 
-                // -------------------------
-                // 最大遗漏号码（灰色）
-                // -------------------------
-                $maxMiss = max($cold);
-                $maxMissNums = [];
+                $currentMax = max($currentCold);
+
+                $currentMaxNums = [];
                 foreach ($currentNums as $num) {
-                    if (($cold[$num] ?? 0) === $maxMiss && $maxMiss > 0) {
-                        $maxMissNums[] = $num;
+                    if (($currentCold[$num] ?? 0) === $currentMax && $currentMax > 0) {
+                        $currentMaxNums[] = $num;
                     }
                 }
 
                 // -------------------------
-                // 计算位置50期未出现（黑色）
+                // ② 下一期最大遗漏（用于推荐）
                 // -------------------------
-                $last50 = DB::table('ssq_lotto_history')
-                    ->where('id', '<', $currentId) // 排除当前期
+                $nextCold = [];
+
+                for ($n = 1; $n <= 33; $n++) {
+
+                    $lastId = DB::table('ssq_lotto_history')
+                        ->where('id', '<=', $currentId) // ✅ 包含当前期
+                        ->whereRaw('? IN (front1,front2,front3,front4,front5,front6)', [$n])
+                        ->orderByDesc('id')
+                        ->value('id');
+
+                    $nextCold[$n] = $lastId
+                        ? $currentIndex - $idIndex[$lastId]
+                        : $currentIndex;
+                }
+
+                $nextMax = max($nextCold);
+
+                $nextMaxNums = [];
+                foreach ($nextCold as $num => $val) {
+                    if ($val === $nextMax) {
+                        $nextMaxNums[] = $num;
+                    }
+                }
+
+                // -------------------------
+                // ③ 位置80期未出现
+                // -------------------------
+                $last80 = DB::table('ssq_lotto_history')
+                    ->where('id', '<', $currentId)
                     ->orderByDesc('id')
                     ->limit(80)
                     ->get(['front1','front2','front3','front4','front5','front6']);
 
-                $pos50Miss = [];
+                $pos80Miss = [];
+
                 foreach ($currentNums as $pos => $num) {
                     $found = false;
-                    foreach ($last50 as $row) {
-                        if ((int)$row->{'front'.$pos} === $num) {
+                    foreach ($last80 as $row) {
+                        if ((int)$row->{'front'.($pos+1)} === $num) {
                             $found = true;
                             break;
                         }
                     }
-                    $pos50Miss[$pos] = $found ? [] : [$num];
+                    $pos80Miss[$pos+1] = $found ? [] : [$num];
                 }
 
                 // -------------------------
-                // 保存到数据库
+                // 保存
                 // -------------------------
                 DB::table('ssq_lotto_history')
                     ->where('id', $currentId)
                     ->update([
-                        'red_cold_json' => json_encode($cold, JSON_UNESCAPED_UNICODE),
-                        'red_max_miss_json' => json_encode(array_values($maxMissNums), JSON_UNESCAPED_UNICODE),
-                        'red_position_80_miss_json' => json_encode($pos50Miss, JSON_UNESCAPED_UNICODE),
+                        'red_max_miss_json'        => json_encode(array_values($currentMaxNums)),
+                        'next_red_max_miss_json'   => json_encode(array_values($nextMaxNums)),
+                        'red_position_80_miss_json'=> json_encode($pos80Miss),
                     ]);
             });
 
