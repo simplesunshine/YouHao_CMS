@@ -226,188 +226,180 @@ class SsqController extends Controller
             break;
 
 
-            /**
-             * =========================
-             * 4️⃣ 胆码机选（加权版）
-             * =========================
-             */
-            /**
- * =========================
- * 4️⃣ 胆码机选（加权版 + 高频两码组合）
- * =========================
- */
-case 'dan_only':
-    $dan = (array)($prefs['dan'] ?? []);
-    if (count($dan) < 1 || count($dan) > 5) {
-        return response()->json([
-            'success' => false,
-            'message' => '胆码数量必须 1–5 个'
-        ], 400);
-    }
-
-    // -------------------------
-    // 获取上期开奖号码及特征
-    // -------------------------
-    $lastIssue = DB::table('ssq_lotto_history')
-        ->orderByDesc('id')
-        ->first();
-
-    if (!$lastIssue) {
-        return response()->json([
-            'success' => false,
-            'message' => '暂无历史开奖数据'
-        ]);
-    }
-
-    $lastSpan  = $lastIssue->span;
-    $lastSum   = $lastIssue->front_sum;
-    $lastZones = explode(',', $lastIssue->zone_ratio);
-
-    // -------------------------
-    // ⚡ 使用 next_red_max_miss_json 作为冷号
-    $nextMiss = json_decode($lastIssue->next_red_max_miss_json, true) ?? [];
-    $coldNumbers = array_values($nextMiss); // 灰色冷号
-
-    // -------------------------
-    // 高频两码组合（缓存）
-    $hotPairs = $this->getHotPairs(6);
-
-    // -------------------------
-    // 获取最近80期每个位置的号码出现次数
-    $posCounts = Cache::remember('ssq_last80_pos_counts', 60, function() {
-        $last80Issues = DB::table('ssq_lotto_history')
-            ->orderByDesc('id')
-            ->limit(80)
-            ->select(['front1','front2','front3','front4','front5','front6'])
-            ->get()
-            ->toArray();
-
-        $counts = [];
-        for ($pos = 1; $pos <= 6; $pos++) $counts[$pos] = [];
-        foreach ($last80Issues as $issue) {
-            for ($pos = 1; $pos <= 6; $pos++) {
-                $num = $issue->{'front'.$pos};
-                $counts[$pos][$num] = ($counts[$pos][$num] ?? 0) + 1;
+        /**
+         * =========================
+         * 4️⃣ 胆码机选（加权版 + 高频两码组合）
+         * =========================
+         */
+        case 'dan_only':
+            $dan = (array)($prefs['dan'] ?? []);
+            if (count($dan) < 1 || count($dan) > 5) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '胆码数量必须 1–5 个'
+                ], 400);
             }
-        }
-        return $counts;
-    });
 
-    // -------------------------
-    // 查询符合胆码条件的号码 + 权重 0–5
-    $query = LottoSsqRecommendation::whereNull('ip')
-        ->whereIn('weight',[0,1,2,3,4,5]);
+            // -------------------------
+            // 获取上期开奖号码及特征
+            // -------------------------
+            $lastIssue = DB::table('ssq_lotto_history')
+                ->orderByDesc('id')
+                ->first();
 
-    foreach ($dan as $num) {
-        $query->where(function($q) use ($num) {
-            $q->orWhere('front_1',$num)
-              ->orWhere('front_2',$num)
-              ->orWhere('front_3',$num)
-              ->orWhere('front_4',$num)
-              ->orWhere('front_5',$num)
-              ->orWhere('front_6',$num);
-        });
-    }
+            if (!$lastIssue) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '暂无历史开奖数据'
+                ]);
+            }
 
-    $results = $query->inRandomOrder()
-        ->take($take)
-        ->select([
-            'id','front_numbers','back_numbers','span','front_sum',
-            'zone1_count','zone2_count','zone3_count','consecutive_count',
-            'front_1','front_2','front_3','front_4','front_5','front_6'
-        ])
-        ->get();
+            $lastSpan  = $lastIssue->span;
+            $lastSum   = $lastIssue->front_sum;
+            $lastZones = explode(',', $lastIssue->zone_ratio);
 
-    // 不够再补权重5
-    if ($results->count() < $take) {
-        $remaining = $take - $results->count();
-        $extra = LottoSsqRecommendation::whereNull('ip')->whereIn('weight',[5,0,1,2]);
-        foreach ($dan as $num) {
-            $extra->where(function($q) use ($num) {
-                $q->orWhere('front_1',$num)
-                  ->orWhere('front_2',$num)
-                  ->orWhere('front_3',$num)
-                  ->orWhere('front_4',$num)
-                  ->orWhere('front_5',$num)
-                  ->orWhere('front_6',$num);
+            // -------------------------
+            // ⚡ 使用 next_red_max_miss_json 作为冷号
+            $nextMiss = json_decode($lastIssue->next_red_max_miss_json, true) ?? [];
+            $coldNumbers = array_values($nextMiss); // 灰色冷号
+
+            // -------------------------
+            // 高频两码组合（缓存）
+            $hotPairs = $this->getHotPairs(6);
+
+            // -------------------------
+            // 获取最近80期每个位置的号码出现次数
+            $posCounts = Cache::remember('ssq_last80_pos_counts', 60, function() {
+                $last80Issues = DB::table('ssq_lotto_history')
+                    ->orderByDesc('id')
+                    ->limit(80)
+                    ->select(['front1','front2','front3','front4','front5','front6'])
+                    ->get()
+                    ->toArray();
+
+                $counts = [];
+                for ($pos = 1; $pos <= 6; $pos++) $counts[$pos] = [];
+                foreach ($last80Issues as $issue) {
+                    for ($pos = 1; $pos <= 6; $pos++) {
+                        $num = $issue->{'front'.$pos};
+                        $counts[$pos][$num] = ($counts[$pos][$num] ?? 0) + 1;
+                    }
+                }
+                return $counts;
             });
-        }
-        $results = $results->merge(
-            $extra->inRandomOrder()
-                ->take($remaining)
+
+            // -------------------------
+            // 查询符合胆码条件的号码 + 权重 0–5
+            $query = LottoSsqRecommendation::whereNull('ip')
+                ->whereIn('weight',[0,1,2,3,4,5]);
+
+            foreach ($dan as $num) {
+                $query->where(function($q) use ($num) {
+                    $q->orWhere('front_1',$num)
+                    ->orWhere('front_2',$num)
+                    ->orWhere('front_3',$num)
+                    ->orWhere('front_4',$num)
+                    ->orWhere('front_5',$num)
+                    ->orWhere('front_6',$num);
+                });
+            }
+
+            $results = $query->inRandomOrder()
+                ->take($take)
                 ->select([
                     'id','front_numbers','back_numbers','span','front_sum',
                     'zone1_count','zone2_count','zone3_count','consecutive_count',
                     'front_1','front_2','front_3','front_4','front_5','front_6'
                 ])
-                ->get()
-        );
-    }
+                ->get();
 
-    // -------------------------
-    // 构建返回数据
-    $randomData = $results->map(function($row) use ($lastSpan,$lastSum,$lastZones,$coldNumbers,$posCounts,$hotPairs) {
-        $reds = array_map('intval', explode(',', $row->front_numbers));
-
-        // 冷号（灰色）
-        $thisCold = array_values(array_intersect($reds,$coldNumbers));
-
-        // 区间比
-        $zoneSame = ($row->zone1_count == $lastZones[0] &&
-                     $row->zone2_count == $lastZones[1] &&
-                     $row->zone3_count == $lastZones[2]);
-
-        // 位置出现次数 & 低出现号码（黑色）
-        $posAppear = [];
-        $lowPosNums = [];
-        for ($pos=1; $pos<=6; $pos++){
-            $num = $reds[$pos-1];
-            $count = $posCounts[$pos][$num] ?? 0;
-            $posAppear[] = $count;
-
-            if ($count === 0) $lowPosNums[] = $num;
-        }
-
-        // 高频组合命中
-        $pairHit = false;
-        $pairScore = 0;
-        $hitPairs = [];
-        $len = count($reds);
-        for ($i=0; $i<$len-1; $i++){
-            for ($j=$i+1; $j<$len; $j++){
-                $key = $reds[$i].','.$reds[$j];
-                if(isset($hotPairs[$key])){
-                    $pairHit = true;
-                    $pairScore += $hotPairs[$key];
-                    $hitPairs[] = ['pair'=>$key,'count'=>$hotPairs[$key]];
+            // 不够再补权重5
+            if ($results->count() < $take) {
+                $remaining = $take - $results->count();
+                $extra = LottoSsqRecommendation::whereNull('ip')->whereIn('weight',[5,0,1,2]);
+                foreach ($dan as $num) {
+                    $extra->where(function($q) use ($num) {
+                        $q->orWhere('front_1',$num)
+                        ->orWhere('front_2',$num)
+                        ->orWhere('front_3',$num)
+                        ->orWhere('front_4',$num)
+                        ->orWhere('front_5',$num)
+                        ->orWhere('front_6',$num);
+                    });
                 }
+                $results = $results->merge(
+                    $extra->inRandomOrder()
+                        ->take($remaining)
+                        ->select([
+                            'id','front_numbers','back_numbers','span','front_sum',
+                            'zone1_count','zone2_count','zone3_count','consecutive_count',
+                            'front_1','front_2','front_3','front_4','front_5','front_6'
+                        ])
+                        ->get()
+                );
             }
-        }
 
-        return [
-            'id'=>$row->id,
-            'front_numbers'=>$row->front_numbers,
-            'back_numbers'=>$row->back_numbers,
-            'features'=>[
-                'span_same'=>$row->span == $lastSpan,
-                'sum_same'=>$row->front_sum == $lastSum,
-                'zone_same'=>$zoneSame,
-                'cold_numbers'=>$thisCold,    // 灰色
-                'continue_count'=>$row->consecutive_count,
-                'pos_appear'=>$posAppear,
-                'low_pos_nums'=>$lowPosNums,  // 黑色
-                'pair_hit'=>$pairHit,
-                'pair_score'=>$pairScore,
-                'hit_pairs'=>$hitPairs
-            ]
-        ];
-    });
+            // -------------------------
+            // 构建返回数据
+            $randomData = $results->map(function($row) use ($lastSpan,$lastSum,$lastZones,$coldNumbers,$posCounts,$hotPairs) {
+                $reds = array_map('intval', explode(',', $row->front_numbers));
 
-    return response()->json([
-        'success'=>true,
-        'data'=>$randomData
-    ]);
-break;
+                // 冷号（灰色）
+                $thisCold = array_values(array_intersect($reds,$coldNumbers));
+
+                // 区间比
+                $zoneSame = ($row->zone1_count == $lastZones[0] &&
+                            $row->zone2_count == $lastZones[1] &&
+                            $row->zone3_count == $lastZones[2]);
+
+                // 位置出现次数 & 低出现号码（黑色）
+                $posAppear = [];
+                $lowPosNums = [];
+                for ($pos=1; $pos<=6; $pos++){
+                    $num = $reds[$pos-1];
+                    $count = $posCounts[$pos][$num] ?? 0;
+                    $posAppear[] = $count;
+
+                    if ($count === 0) $lowPosNums[] = $num;
+                }
+
+                // 高频组合命中
+                $pairHit = false;
+                $pairScore = 0;
+                $hitPairs = [];
+                $len = count($reds);
+                for ($i=0; $i<$len-1; $i++){
+                    for ($j=$i+1; $j<$len; $j++){
+                        $key = $reds[$i].','.$reds[$j];
+                        if(isset($hotPairs[$key])){
+                            $pairHit = true;
+                            $pairScore += $hotPairs[$key];
+                            $hitPairs[] = ['pair'=>$key,'count'=>$hotPairs[$key]];
+                        }
+                    }
+                }
+
+                return [
+                    'id'=>$row->id,
+                    'front_numbers'=>$row->front_numbers,
+                    'back_numbers'=>$row->back_numbers,
+                    'features'=>[
+                        'span_same'=>$row->span == $lastSpan,
+                        'sum_same'=>$row->front_sum == $lastSum,
+                        'zone_same'=>$zoneSame,
+                        'cold_numbers'=>$thisCold,    // 灰色
+                        'continue_count'=>$row->consecutive_count,
+                        'pos_appear'=>$posAppear,
+                        'low_pos_nums'=>$lowPosNums,  // 黑色
+                        'pair_hit'=>$pairHit,
+                        'pair_score'=>$pairScore,
+                        'hit_pairs'=>$hitPairs
+                    ]
+                ];
+            });
+
+
+        break;
 
 
             /**
