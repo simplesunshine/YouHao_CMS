@@ -357,6 +357,27 @@ class SsqLottoHistoryController extends AdminController
                 }
 
                 // -------------------------
+                // ④ 红球全局遗漏（当前期截止）
+                // -------------------------
+                $ballOmission = [];
+
+                for ($n = 1; $n <= 33; $n++) {
+
+                    $lastHitId = DB::table('ssq_lotto_history')
+                        ->where('id', '<=', $currentId)
+                        ->whereRaw('? IN (front1,front2,front3,front4,front5,front6)', [$n])
+                        ->orderByDesc('id')
+                        ->value('id');
+
+                    if ($lastHitId) {
+                        $ballOmission[$n] = $currentIndex - $idIndex[$lastHitId];
+                    } else {
+                        // 从未出现过 → 用当前期索引
+                        $ballOmission[$n] = $currentIndex;
+                    }
+                }
+
+                // -------------------------
                 // 保存
                 // -------------------------
                 DB::table('ssq_lotto_history')
@@ -365,6 +386,7 @@ class SsqLottoHistoryController extends AdminController
                         'red_max_miss_json'        => json_encode(array_values($currentMaxNums)),
                         'next_red_max_miss_json'   => json_encode(array_values($nextMaxNums)),
                         'red_position_80_miss_json'=> json_encode($pos80Miss),
+                        'red_ball_omission'         => json_encode($ballOmission, JSON_UNESCAPED_UNICODE),
                     ]);
             });
 

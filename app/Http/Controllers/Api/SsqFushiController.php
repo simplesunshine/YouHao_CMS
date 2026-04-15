@@ -37,7 +37,7 @@ class SsqFushiController extends Controller
 
         // 获取红球遗漏值和上期前区号码
         $row = DB::table('ssq_lotto_history')
-            ->select('red_cold_json', 'front_numbers')
+            ->select('red_ball_omission', 'front_numbers')
             ->orderByDesc('id')
             ->first();
 
@@ -45,7 +45,7 @@ class SsqFushiController extends Controller
             return response()->json(['code' => 500, 'msg' => '历史数据不存在']);
         }
 
-        $redOmit = json_decode($row->red_cold_json, true); // 1-33 遗漏值
+        $redOmit = json_decode($row->red_ball_omission, true); // 1-33 遗漏值
         $lastFront = explode(',', $row->front_numbers);
         $lastFront = array_map('intval', $lastFront); // 转成整数数组
 
@@ -154,7 +154,7 @@ class SsqFushiController extends Controller
 
         // 获取遗漏值和上期号码
         $row = DB::table('ssq_lotto_history')
-            ->select('red_cold_json','front_numbers')
+            ->select('red_ball_omission','front_numbers')
             ->orderByDesc('id')
             ->first();
 
@@ -162,7 +162,7 @@ class SsqFushiController extends Controller
             return response()->json(['code'=>500,'msg'=>'历史数据不存在']);
         }
 
-        $redOmit = json_decode($row->red_cold_json,true);
+        $redOmit = json_decode($row->red_ball_omission,true);
         $lastFront = array_map('intval', explode(',', $row->front_numbers));
 
         $try = 0;
@@ -256,13 +256,13 @@ class SsqFushiController extends Controller
 
         // 获取遗漏值和上期号码
         $row = DB::table('ssq_lotto_history')
-            ->select('red_cold_json','front_numbers')
+            ->select('red_ball_omission','front_numbers')
             ->orderByDesc('id')
             ->first();
 
         if (!$row) return response()->json(['code'=>500,'msg'=>'历史数据不存在']);
 
-        $redOmit = json_decode($row->red_cold_json,true);
+        $redOmit = json_decode($row->red_ball_omission,true);
         $lastFront = array_map('intval', explode(',', $row->front_numbers));
 
         $killNumbers = explode(',', $killNumbers);      // 拆成数组
@@ -342,13 +342,13 @@ class SsqFushiController extends Controller
 
         // 获取遗漏值和上期号码
         $row = DB::table('ssq_lotto_history')
-            ->select('red_cold_json','front_numbers')
+            ->select('red_ball_omission','front_numbers')
             ->orderByDesc('id')
             ->first();
 
         if (!$row) return response()->json(['code'=>500,'msg'=>'历史数据不存在']);
 
-        $redOmit = json_decode($row->red_cold_json,true);
+        $redOmit = json_decode($row->red_ball_omission,true);
         $lastFront = array_map('intval', explode(',', $row->front_numbers));
 
         // 转数组
