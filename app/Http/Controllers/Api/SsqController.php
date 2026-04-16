@@ -586,13 +586,6 @@ class SsqController extends Controller
                         ]
                     ];
                 });
-
-                return response()->json([
-                    'success' => true,
-                    'data' => $randomData,
-                    'first_advantage_top' => $topFirstDisplay
-                ]);
-
             break;
 
             /**
