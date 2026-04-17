@@ -104,7 +104,14 @@ class SsqController extends Controller
                 });
 
                 arsort($firstCounts);
-                $strongFirst = array_slice(array_keys($firstCounts), 0, 5);
+
+                $topLimit = 5;
+
+                // ⭐ 用于返回给前端
+                $firstAdvTop = array_slice($firstCounts, 0, $topLimit, true);
+
+                // ⭐ 用于查询
+                $strongFirst = array_keys($firstAdvTop);
 
                 $results = LottoSsqRecommendation::whereNull('ip')
                     ->whereIn('front_1', $strongFirst)
@@ -241,11 +248,18 @@ class SsqController extends Controller
             $randomData->pluck('id')->toArray()
         )->update(['ip'=>$ip, 'mode'=>$type]);
 
-        return response()->json([
-            'success'=>true,
-            'data'=>$randomData,
-            'remain'=>$remaining - $randomData->count(),
-        ]);
+        $response = [
+            'success' => true,
+            'data' => $randomData,
+            'remain' => $remaining - $randomData->count(),
+        ];
+
+        // ⭐ 只在首红玩法返回
+        if ($type === 'first_advantage') {
+            $response['first_advantage_top'] = $firstAdvTop ?? [];
+        }
+
+        return response()->json($response);
     }
 
     /**
