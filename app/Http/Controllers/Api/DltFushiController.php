@@ -36,7 +36,7 @@ class DltFushiController extends Controller
 
         // 大乐透历史
         $row = DB::table('dlt_lotto_history')
-            ->select('red_cold_json','front_numbers')
+            ->select('red_ball_omission','front_numbers')
             ->orderByDesc('id')
             ->first();
 
@@ -44,7 +44,7 @@ class DltFushiController extends Controller
             return response()->json(['code'=>500,'msg'=>'历史数据不存在']);
         }
 
-        $redOmit = json_decode($row->red_cold_json,true);
+        $redOmit = json_decode($row->red_ball_omission,true);
 
         $try = 0;
 
@@ -162,7 +162,7 @@ class DltFushiController extends Controller
 
         // 获取大乐透历史
         $row = DB::table('dlt_lotto_history')
-            ->select('red_cold_json','front_numbers')
+            ->select('red_ball_omission','front_numbers')
             ->orderByDesc('id')
             ->first();
 
@@ -170,7 +170,7 @@ class DltFushiController extends Controller
             return response()->json(['code'=>500,'msg'=>'历史数据不存在']);
         }
 
-        $redOmit = json_decode($row->red_cold_json,true);
+        $redOmit = json_decode($row->red_ball_omission,true);
 
         $try = 0;
 
@@ -278,13 +278,13 @@ class DltFushiController extends Controller
 
         // 获取遗漏值和上期号码
         $row = DB::table('ssq_lotto_history')
-            ->select('red_cold_json','front_numbers')
+            ->select('red_ball_omission','front_numbers')
             ->orderByDesc('id')
             ->first();
 
         if (!$row) return response()->json(['code'=>500,'msg'=>'历史数据不存在']);
 
-        $redOmit = json_decode($row->red_cold_json,true);
+        $redOmit = json_decode($row->red_ball_omission,true);
         $lastFront = array_map('intval', explode(',', $row->front_numbers));
 
         $killNumbers = explode(',', $killNumbers);      // 拆成数组
@@ -364,13 +364,13 @@ class DltFushiController extends Controller
 
         // 获取遗漏值和上期号码
         $row = DB::table('ssq_lotto_history')
-            ->select('red_cold_json','front_numbers')
+            ->select('red_ball_omission','front_numbers')
             ->orderByDesc('id')
             ->first();
 
         if (!$row) return response()->json(['code'=>500,'msg'=>'历史数据不存在']);
 
-        $redOmit = json_decode($row->red_cold_json,true);
+        $redOmit = json_decode($row->red_ball_omission,true);
         $lastFront = array_map('intval', explode(',', $row->front_numbers));
 
         // 转数组

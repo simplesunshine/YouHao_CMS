@@ -113,7 +113,7 @@ class DltLottoHistoryController extends AdminController
             $form->hidden('front_sum');
             $form->hidden('span');
             $form->hidden('zone_ratio');
-            $form->hidden('red_cold_json'); // 保存冷号 json
+            $form->hidden('red_ball_omission'); // 保存冷号 json
             $form->hidden('odd_count');
             $form->hidden('even_count');
 
@@ -161,28 +161,142 @@ class DltLottoHistoryController extends AdminController
                 $form->model()->even_count = 5 - $odd;
             });
 
-            // -------------------------
-            // 保存后计算冷号 red_cold_json
-            // -------------------------
             $form->saved(function (\Dcat\Admin\Form $form) {
 
                 $currentId = $form->model()->id;
 
-                $cold = [];
+                // 当前前区号码
+                $currentNums = [
+                    (int)$form->model()->front1,
+                    (int)$form->model()->front2,
+                    (int)$form->model()->front3,
+                    (int)$form->model()->front4,
+                    (int)$form->model()->front5,
+                ];
 
-                for ($n = 1; $n <= 35; $n++) {
-                    // 查前区最近出现期号
-                    $lastId = DB::table('dlt_lotto_history')
-                        ->whereRaw('? IN (front1,front2,front3,front4,front5)', [$n])
-                        ->max('id');
+                // -------------------------
+                // 全表索引（防止ID跳号）
+                // -------------------------
+                $allIds = DB::table('dlt_lotto_history')
+                    ->orderBy('id')
+                    ->pluck('id')
+                    ->toArray();
 
-                    $cold[$n] = $lastId ? ($currentId - $lastId) : $currentId;
+                $idIndex = [];
+                foreach ($allIds as $idx => $id) {
+                    $idIndex[$id] = $idx + 1;
                 }
 
+                $currentIndex = $idIndex[$currentId] ?? 0;
+
+                // -------------------------
+                // ① 当前期最大遗漏（用于展示）
+                // -------------------------
+                $currentCold = [];
+
+                for ($n = 1; $n <= 35; $n++) {
+
+                    $lastId = DB::table('dlt_lotto_history')
+                        ->where('id', '<', $currentId)
+                        ->whereRaw('? IN (front1,front2,front3,front4,front5)', [$n])
+                        ->orderByDesc('id')
+                        ->value('id');
+
+                    $currentCold[$n] = $lastId
+                        ? $currentIndex - $idIndex[$lastId]
+                        : $currentIndex;
+                }
+
+                $currentMax = max($currentCold);
+
+                $currentMaxNums = [];
+                foreach ($currentNums as $num) {
+                    if (($currentCold[$num] ?? 0) === $currentMax && $currentMax > 0) {
+                        $currentMaxNums[] = $num;
+                    }
+                }
+
+                // -------------------------
+                // ② 下一期最大遗漏（用于推荐）
+                // -------------------------
+                $nextCold = [];
+
+                for ($n = 1; $n <= 35; $n++) {
+
+                    $lastId = DB::table('dlt_lotto_history')
+                        ->where('id', '<=', $currentId)
+                        ->whereRaw('? IN (front1,front2,front3,front4,front5)', [$n])
+                        ->orderByDesc('id')
+                        ->value('id');
+
+                    $nextCold[$n] = $lastId
+                        ? $currentIndex - $idIndex[$lastId]
+                        : $currentIndex;
+                }
+
+                $nextMax = max($nextCold);
+
+                $nextMaxNums = [];
+                foreach ($nextCold as $num => $val) {
+                    if ($val === $nextMax) {
+                        $nextMaxNums[] = $num;
+                    }
+                }
+
+                // -------------------------
+                // ③ 位置80期未出现
+                // -------------------------
+                $last80 = DB::table('dlt_lotto_history')
+                    ->where('id', '<', $currentId)
+                    ->orderByDesc('id')
+                    ->limit(80)
+                    ->get(['front1','front2','front3','front4','front5']);
+
+                $pos80Miss = [];
+
+                foreach ($currentNums as $pos => $num) {
+                    $found = false;
+
+                    foreach ($last80 as $row) {
+                        if ((int)$row->{'front'.($pos+1)} === $num) {
+                            $found = true;
+                            break;
+                        }
+                    }
+
+                    $pos80Miss[$pos+1] = $found ? [] : [$num];
+                }
+
+                // -------------------------
+                // ④ 红球全局遗漏（当前期截止）
+                // -------------------------
+                $ballOmission = [];
+
+                for ($n = 1; $n <= 35; $n++) {
+
+                    $lastHitId = DB::table('dlt_lotto_history')
+                        ->where('id', '<=', $currentId)
+                        ->whereRaw('? IN (front1,front2,front3,front4,front5)', [$n])
+                        ->orderByDesc('id')
+                        ->value('id');
+
+                    if ($lastHitId) {
+                        $ballOmission[$n] = $currentIndex - $idIndex[$lastHitId];
+                    } else {
+                        $ballOmission[$n] = $currentIndex;
+                    }
+                }
+
+                // -------------------------
+                // 保存
+                // -------------------------
                 DB::table('dlt_lotto_history')
                     ->where('id', $currentId)
                     ->update([
-                        'red_cold_json' => json_encode($cold, JSON_UNESCAPED_UNICODE)
+                        'red_max_miss_json'         => json_encode(array_values($currentMaxNums)),
+                        'next_red_max_miss_json'    => json_encode(array_values($nextMaxNums)),
+                        'red_position_80_miss_json' => json_encode($pos80Miss),
+                        'red_ball_omission'         => json_encode($ballOmission, JSON_UNESCAPED_UNICODE),
                     ]);
             });
 
