@@ -575,6 +575,7 @@ class SsqController extends Controller
             'pair_hit'   => $pairHit,
             'pair_score' => $pairScore,
             'hit_pairs'  => $hitPairs,
+            'weight'     => $row->weight,
 
             'continue_count' => $row->consecutive_count
         ];
