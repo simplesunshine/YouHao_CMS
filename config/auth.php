@@ -42,10 +42,10 @@ return [
         ],
 
         'api' => [
-            'driver' => 'token',
-            'provider' => 'users',
-            'hash' => false,
-        ],
+        'driver' => 'token',
+        'provider' => 'users',
+        'hash' => false, // 因为我们数据库存的是明文随机字符串
+    ],
     ],
 
     /*
