@@ -39,7 +39,7 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
-            return response()->json(['success' => false, 'message' => '账号或密码错误'], 401);
+            return response()->json(['success' => false, 'message' => '邮箱或密码错误'], 401);
         }
 
         // 生成 Token (使用 Sanctum)
