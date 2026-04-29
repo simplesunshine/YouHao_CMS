@@ -104,7 +104,9 @@ class DltLotteryFeatureService
             'cold_numbers'   => $coldHit,
             'continue_count' => $row->consecutive_count,
             'pos_appear'     => $posAppear,
+            'weight'         => $row->weight,
             'low_pos_nums'   => $lowPosNums
+            
         ];
     }
 

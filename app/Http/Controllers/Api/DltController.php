@@ -110,7 +110,7 @@ class DltController extends Controller
         }
 
         if ($results->isEmpty()) {
-            return response()->json(['success' => false, 'message' => '没有符合条件的号码']);
+            return response()->json(['success' => false, 'message' => '没有符合条件的号码或数据未更新']);
         }
 
         // 3. 构建返回数据 (带特征分析)
