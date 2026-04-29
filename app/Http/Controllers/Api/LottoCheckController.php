@@ -8,61 +8,157 @@ use Illuminate\Support\Facades\DB;
 
 class LottoCheckController extends Controller
 {
-    /**
-     * 查询前区号码是否在机选库（不补零）
-     */
     public function checkFrontExists(Request $request)
     {
-        $type = $request->input('type'); // ssq / dlt
-        $frontNumbers = $request->input('front_numbers'); // 用户输入，如 "1,3,12,8,22"
+        $type = $request->input('type', 'ssq');
+        $frontNumbers = $request->input('front_numbers');
 
-        // 拆分并去掉空格
-        $nums = preg_split('/[,\s]+/', $frontNumbers);
-        $nums = array_map('trim', $nums);
-
-        // 用逗号连接，不补零
+        // 1. 预处理：规范化用户输入
+        $nums = preg_split('/[,\s\-]+/', $frontNumbers);
+        $nums = array_filter(array_map('intval', $nums));
+        sort($nums);
         $frontStr = implode(',', $nums);
 
-        // 根据彩种选择表和字段
-        if ($type === 'ssq') {
-            $table = 'lotto_ssq_recommendations';
-            $field = 'front_numbers'; // 前区字段
-        } else {
-            $table = 'lotto_dlt_recommendations';
-            $field = 'front_numbers';
+        $isSsq = ($type === 'ssq');
+        $needCount = $isSsq ? 6 : 5;
+
+        if (count($nums) !== $needCount) {
+            return response()->json(['success' => false, 'message' => "号码数量不正确"], 400);
         }
 
-        $query = DB::table($table)
-            ->where($field, $frontStr);
+        $historyTable = $isSsq ? 'ssq_lotto_history' : 'dlt_lotto_history';
 
-        $count = $query->count();
+        // 2. 查询机选演算库
+        $recTable = $isSsq ? 'lotto_ssq_recommendations' : 'lotto_dlt_recommendations';
+        $recRecord = DB::table($recTable)->where('front_numbers', $frontStr)->first();
+        $exists = !is_null($recRecord);
 
-        $latest = [];
-        if ($count > 0) {
-            $latest = $query->orderBy('id', 'desc')
-                            ->take(5)
-                            ->get(['id', 'created_at']);
-        }
+        // 3. 实时特征
+        $oddCount = count(array_filter($nums, fn($n) => $n % 2 !== 0));
+        $posAppear = $this->calculatePositionFrequency($historyTable, $nums, $needCount);
 
-        $ip = $request->ip();
-        // 记录 IP 查询行为（不影响主流程）
-        DB::table('user_lotto_queries')->updateOrInsert(
-            [
-                'lotto_type'  => $type === 'ssq' ? 1 : 2,
-                'red_numbers' => $frontStr,
-                'ip'          => $ip,
-            ],
-            [
-                'hit_library' => $count > 0 ? 1 : 0,
-                'user_agent'  => substr($request->userAgent(), 0, 255),
-                'created_at'  => now(),
-            ]
-        );
+        $features = [
+            'weight'     => $exists ? ($recRecord->weight ?? 0) : 0,
+            'odd_even'   => $oddCount . ':' . ($needCount - $oddCount),
+            'sum'        => array_sum($nums),
+            'zone_ratio' => $this->calculateZoneRatio($nums, $type),
+            'span'       => (count($nums) > 0) ? (max($nums) - min($nums)) : 0,
+            'pos_appear' => $posAppear,
+        ];
+
+        // 4. 历史碰撞：传入 $isSsq 判定不同门槛
+        $historyCollisions = $this->getHistoryCollisions($historyTable, $nums, $needCount, $isSsq);
 
         return response()->json([
-            'exists' => $count > 0,
-            'count'  => $count,
-            'latest' => $latest
+            'exists'   => $exists,
+            'features' => $features,
+            'history'  => $historyCollisions,
+            'message'  => $exists ? '匹配成功' : '该号码未在演算库中'
         ]);
+    }
+
+    private function calculatePositionFrequency($table, $userNums, $count)
+    {
+        $fields = [];
+        for ($i = 1; $i <= $count; $i++) { $fields[] = 'front' . $i; }
+
+        $recentHistories = DB::table($table)->select($fields)->orderBy('id', 'desc')->limit(80)->get();
+        $frequency = array_fill(0, $count, 0);
+
+        foreach ($recentHistories as $h) {
+            for ($i = 0; $i < $count; $i++) {
+                $f = 'front' . ($i + 1);
+                if (isset($h->$f) && (int)$h->$f === $userNums[$i]) {
+                    $frequency[$i]++;
+                }
+            }
+        }
+        return $frequency;
+    }
+
+    private function calculateZoneRatio($nums, $type)
+    {
+        $z1 = $z2 = $z3 = 0;
+        foreach ($nums as $n) {
+            if ($type === 'ssq') {
+                if ($n <= 11) $z1++; elseif ($n <= 22) $z2++; else $z3++;
+            } else {
+                if ($n <= 12) $z1++; elseif ($n <= 24) $z2++; else $z3++;
+            }
+        }
+        return "$z1:$z2:$z3";
+    }
+
+    /**
+     * 历史碰撞：双色球 5+，大乐透 4+
+     */
+    private function getHistoryCollisions($table, $userNums, $maxFront, $isSsq)
+    {
+        // 1. 设置门槛
+        $minHit = $isSsq ? 5 : 4;
+
+        // 2. 全量取出，按 ID 倒序
+        $histories = DB::table($table)->orderBy('id', 'desc')->get();
+        $results = [];
+
+        foreach ($histories as $h) {
+            // 直接从 front1-front6 字段构造数组比对，最稳
+            $hNums = [];
+            for ($i = 1; $i <= $maxFront; $i++) {
+                $f = "front" . $i;
+                if (isset($h->$f)) {
+                    $hNums[] = (int)$h->$f;
+                }
+            }
+            
+            // 如果分字段没拿到数据，退而求其次解析字符串
+            if (empty($hNums) && isset($h->front_numbers)) {
+                $hNums = array_filter(array_map('intval', preg_split('/[,\s]+/', trim($h->front_numbers))));
+            }
+
+            // 计算交集
+            $hitCount = count(array_intersect($userNums, $hNums));
+
+            // 3. 应用动态门槛
+            if ($hitCount >= $minHit) {
+                $showNum = $h->front_numbers ?? implode(',', $hNums);
+                $showBack = '';
+                if (isset($h->back_numbers)) {
+                    $showBack = ' 后区:'.$h->back_numbers;
+                } elseif (isset($h->back1)) {
+                    $showBack = ' 后区:'.$h->back1 . (isset($h->back2) ? ','.$h->back2 : '');
+                }
+
+                $results[] = [
+                    'id'        => (int)$h->id,
+                    'issue'     => (string)$h->issue,
+                    'hit_count' => $hitCount,
+                    'numbers'   => '前区:'.$showNum . $showBack
+                ];
+            }
+        }
+
+        // 4. 排序：命中数第一，ID（时间）第二
+        usort($results, function($a, $b) {
+            if ($a['hit_count'] !== $b['hit_count']) {
+                return $b['hit_count'] <=> $a['hit_count'];
+            }
+            return $b['id'] <=> $a['id'];
+        });
+
+        return array_slice($results, 0, 1000);
+    }
+
+    private function logQuery($request, $type, $frontStr, $exists)
+    {
+        try {
+            DB::table('user_lotto_queries')->insert([
+                'lotto_type'    => $type === 'ssq' ? 1 : 2,
+                'front_numbers' => $frontStr,
+                'ip'            => $request->ip(),
+                'hit_library'   => $exists ? 1 : 0,
+                'created_at'    => now(),
+            ]);
+        } catch (\Exception $e) { }
     }
 }
