@@ -12,15 +12,42 @@ use App\Services\DltLotteryFeatureService;
 class DltController extends Controller
 {
     /**
-     * 大乐透机选接口 (集成自动保存)
+     * 内部限流逻辑：基于 User ID (1秒1次)
+     */
+    private function checkRateLimit($user)
+    {
+        $cacheKey = 'dlt_pick_limit_user_' . $user->id;
+
+        if (Cache::has($cacheKey)) {
+            return false;
+        }
+
+        Cache::put($cacheKey, 1, 1);
+        return true;
+    }
+
+    /**
+     * 大乐透机选接口 (集成自动保存与期号修复)
      */
     public function pick(Request $request)
     {
-        $user = $request->user(); // 获取登录用户 (需配合路由中间件 auth:api)
+        $user = $request->user();
         $ip = $request->ip();
 
-        // 1. 次数限制 (基于用户ID)
-        $count = LottoDltRecommendation::where('user_id', $user->id)->count();
+        // 1. 频率限制
+        if (!$this->checkRateLimit($user)) {
+            return response()->json([
+                'success' => false,
+                'message' => '操作太频繁，请稍后再试'
+            ], 429);
+        }
+
+        // 2. 总次数限制 (基于统一表查询已抽取数量)
+        $count = DB::table('user_lotto_records')
+            ->where('user_id', $user->id)
+            ->where('lottery_type', 'dlt')
+            ->count();
+            
         $maxPerUser = 500;
         $remaining = $maxPerUser - $count;
 
@@ -38,12 +65,12 @@ class DltController extends Controller
 
         $service = new DltLotteryFeatureService();
         $results = collect();
+        $query = LottoDltRecommendation::whereNull('ip');
 
-        // 2. 玩法逻辑分支
+        // 3. 玩法逻辑分支
         switch ($type) {
             case 'normal':
-                $results = LottoDltRecommendation::whereNull('ip')
-                    ->inRandomOrder()->take($take)->get();
+                $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
             case 'first_advantage':
@@ -54,21 +81,18 @@ class DltController extends Controller
                     arsort($map);
                     return array_slice($map, 0, 5, true);
                 });
-                $results = LottoDltRecommendation::whereNull('ip')
-                    ->whereIn('front_1', array_keys($topAdv))
-                    ->inRandomOrder()->take($take)->get();
+                $results = $query->whereIn('front_1', array_keys($topAdv))->inRandomOrder()->take($take)->get();
                 break;
 
             case 'connect':
                 $consecutive = (int)($prefs['serial'] ?? 0);
                 if ($consecutive <= 0) return response()->json(['success' => false, 'message' => '请选择连号个数'], 400);
-                $results = LottoDltRecommendation::whereNull('ip')->where('consecutive_count', $consecutive)->inRandomOrder()->take($take)->get();
+                $results = $query->where('consecutive_count', $consecutive)->inRandomOrder()->take($take)->get();
                 break;
 
             case 'dan_only':
                 $frontDan = (array)($prefs['front_dan'] ?? []);
                 if (empty($frontDan) || count($frontDan) > 4) return response()->json(['success' => false, 'message' => '前区胆码数量 1-4 个'], 400);
-                $query = LottoDltRecommendation::whereNull('ip');
                 foreach ($frontDan as $num) {
                     $query->where(function ($q) use ($num) {
                         $q->orWhere('front_1', $num)->orWhere('front_2', $num)->orWhere('front_3', $num)->orWhere('front_4', $num)->orWhere('front_5', $num);
@@ -80,98 +104,71 @@ class DltController extends Controller
             case 'history_sum':
                 $excludeCount = (int)$request->input('exclude', 0);
                 $excludeSums = $excludeCount > 0 ? DB::table('dlt_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('front_sum')->toArray() : [];
-                $query = LottoDltRecommendation::whereNull('ip');
                 if (!empty($excludeSums)) $query->whereNotIn('front_sum', $excludeSums);
-                $results = $query->inRandomOrder()->take($take)->get();
-                break;
-
-            case 'history_span':
-                $exclude = (array)$request->input('exclude', []);
-                $query = LottoDltRecommendation::whereNull('ip');
-                if (!empty($exclude)) $query->whereNotIn('span', $exclude);
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
             case 'odd_even':
                 if (empty($prefs['odd_even'])) return response()->json(['success' => false, 'message' => '请选择奇偶比'], 400);
                 [$odd, $even] = explode(':', $prefs['odd_even']);
-                $results = LottoDltRecommendation::whereNull('ip')->where('odd_count', (int)$odd)->where('even_count', (int)$even)->inRandomOrder()->take($take)->get();
+                $results = $query->where('odd_count', (int)$odd)->where('even_count', (int)$even)->inRandomOrder()->take($take)->get();
                 break;
 
             case 'first_last':
-                $query = LottoDltRecommendation::whereNull('ip');
                 if (!empty($prefs['first'])) $query->where('front_1', $prefs['first']);
                 if (!empty($prefs['last'])) $query->where('front_5', $prefs['last']);
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
             default:
-                return response()->json(['success' => false, 'message' => '未知机选类型'], 400);
+                $results = $query->inRandomOrder()->take($take)->get();
         }
 
         if ($results->isEmpty()) {
-            return response()->json(['success' => false, 'message' => '没有符合条件的号码或数据未更新']);
+            return response()->json(['success' => false, 'message' => '没有符合条件的号码']);
         }
 
-        // 3. 构建返回数据 (带特征分析)
+        // 4. 构建返回数据
         $randomData = $results->map(fn($row) => $service->buildRow($row));
 
-        // 4. 绑定用户信息到推荐池 (标记已抽取)
+        // 5. ⭐ 自动保存到永久记录表 (包含期号修复逻辑)
+        $records = [];
+        foreach ($results as $row) {
+            $issue = $row->issue;
+            // 修复期号：如果小于 7 位（如 26001），则补齐为 2026001
+            if (strlen($issue) < 7) {
+                $issue = '20' . $issue;
+            }
+
+            $records[] = [
+                'user_id'       => $user->id,
+                'lottery_type'  => 'dlt',
+                'is_fushi'      => 0, // 机选默认为单式
+                'issue'         => $issue,
+                'mode'          => $type,
+                'red_numbers'   => $row->front_numbers, // 前区
+                'blue_numbers'  => $row->back_numbers,  // 后区
+                'red_dan'       => '',
+                'kill_numbers'  => '',
+                'is_win'        => 0,
+                'ip'            => $ip,
+                'created_at'    => now(),
+                'updated_at'    => now(),
+            ];
+        }
+        DB::table('user_lotto_records')->insert($records);
+
+        // 标记推荐池记录
         LottoDltRecommendation::whereIn('id', $results->pluck('id'))->update([
             'ip'      => $ip,
             'user_id' => $user->id,
             'mode'    => $type
         ]);
 
-        // 5. ⭐ 自动保存到永久记录表
-        $records = [];
-        foreach ($results as $row) {
-            $records[] = [
-                'user_id'       => $user->id,
-                'lottery_type'  => 'dlt',
-                'issue'         => $row->issue,
-                'front_numbers' => $row->front_numbers,
-                'back_numbers'  => $row->back_numbers,
-                'is_win'        => 0,
-                'mode'          => $type,
-                'created_at'    => now(),
-                'updated_at'    => now(),
-            ];
-        }
-        DB::table('user_lotto_selections')->insert($records);
-
-        $response = [
+        return response()->json([
             'success' => true,
             'data'    => $randomData,
             'remain'  => $remaining - $results->count(),
-        ];
-
-        if ($type === 'first_advantage') {
-            $response['top'] = $topAdv ?? [];
-        }
-
-        return response()->json($response);
-    }
-
-    /**
-     * 下载当前 IP 的号码
-     */
-    public function download(Request $request)
-    {
-        $ip = $request->ip();
-        if (empty($ip)) return response()->json(['success'=>false,'message'=>'获取失败'],400);
-
-        $list = LottoDltRecommendation::where('ip',$ip)->orderBy('id')->get();
-        if ($list->isEmpty()) return response()->json(['success'=>false,'message'=>'暂无可下载数据'],404);
-
-        $content = '';
-        foreach($list as $i=>$row){
-            $content .= sprintf("%02d. 前区:%s | 后区:%s\n", $i+1, $row->front_numbers, $row->back_numbers);
-        }
-
-        return response($content,200,[
-            'Content-Type'=>'text/plain; charset=UTF-8',
-            'Content-Disposition'=>'attachment; filename="dlt.txt"'
         ]);
     }
 
@@ -180,8 +177,7 @@ class DltController extends Controller
      */
     public function numberDistribution(Request $request)
     {
-        $periods = (int) $request->input('periods', 50);
-        $periods = min(max($periods, 1), 3000);
+        $periods = min(max((int)$request->input('periods', 50), 1), 3000);
 
         $history = DB::table('dlt_lotto_history')->orderByDesc('issue')->limit($periods)
             ->get(['front1','front2','front3','front4','front5','back1','back2']);
@@ -220,12 +216,17 @@ class DltController extends Controller
     }
 
     /**
-     * 获取上期开奖号码
+     * 获取上期开奖 (带期号修复)
      */
     public function lastIssue(Request $request)
     {
         $last = DB::table('dlt_lotto_history')->orderByDesc('id')->first();
         if (!$last) return response()->json(['success' => false, 'message' => '暂无历史开奖数据']);
+
+        $issue = $last->issue;
+        if (strlen($issue) < 7) {
+            $issue = '20' . $issue;
+        }
 
         $redCold = json_decode($last->red_ball_omission, true) ?? [];
         $maxCold = $redCold ? max($redCold) : 0;
@@ -237,6 +238,7 @@ class DltController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
+                'issue'         => $issue,
                 'front_numbers' => $last->front_numbers,
                 'back_numbers'  => $last->back_numbers,
                 'features' => [
@@ -268,28 +270,12 @@ class DltController extends Controller
         return response()->json(['code' => 200, 'data' => array_values($stats)]);
     }
 
-    /**
-     * 前区两码组合统计
-     */
-    public function pairStats()
+    private function hasPrime($nums)
     {
-        $data = Cache::remember('dlt_pair_stats_100', 3600, function () {
-            $rows = DB::table('dlt_lotto_history')->orderByDesc('issue')->limit(100)->get();
-            $counts = [];
-            foreach ($rows as $row) {
-                $numbers = [$row->front1, $row->front2, $row->front3, $row->front4, $row->front5];
-                sort($numbers);
-                $len = count($numbers);
-                for ($i = 0; $i < $len - 1; $i++) {
-                    for ($j = $i + 1; $j < $len; $j++) {
-                        $key = $numbers[$i] . ',' . $numbers[$j];
-                        $counts[$key] = ($counts[$key] ?? 0) + 1;
-                    }
-                }
-            }
-            return $counts;
-        });
-
-        return response()->json(['data' => $data]);
+        $primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
+        foreach ($nums as $n) {
+            if (in_array($n, $primes)) return true;
+        }
+        return false;
     }
 }
