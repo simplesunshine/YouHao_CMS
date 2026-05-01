@@ -334,9 +334,69 @@ class SsqController extends Controller
         return response()->json(['data' => $data]);
     }
 
-    private function getHotPairs($minCount = 6)
+
+    /**
+     * 获取双色球号码分布趋势（冷热度分析）
+     */
+    public function numberDistribution(Request $request)
     {
-        $pairStats = Cache::get('ssq_pair_stats_100', []);
-        return array_filter($pairStats, fn($count) => $count >= $minCount);
+        // 默认查询最近 30 期，也可以通过请求参数自定义
+        $limit = $request->input('limit', 30);
+        
+        // 1. 获取最近的开奖数据
+        $history = DB::table('ssq_lotto_history')
+            ->orderBy('issue', 'desc')
+            ->limit($limit)
+            ->get();
+
+        if ($history->isEmpty()) {
+            return response()->json(['success' => false, 'message' => '暂无历史数据']);
+        }
+
+        // 2. 初始化红球(1-33)和蓝球(1-16)的计数器
+        $redStats = array_fill(1, 33, 0);
+        $blueStats = array_fill(1, 16, 0);
+
+        // 辅助解析函数：处理 "01,02,03" 或 "1 2 3" 格式
+        $parseNumbers = function($str) {
+            if (!$str) return [];
+            $parts = preg_split('/[,\s]+/', trim($str));
+            return array_filter(array_map('intval', $parts));
+        };
+
+        // 3. 遍历历史数据进行统计
+        foreach ($history as $row) {
+            $reds = $parseNumbers($row->front_numbers);
+            $blues = $parseNumbers($row->back_numbers);
+
+            foreach ($reds as $num) {
+                if (isset($redStats[$num])) $redStats[$num]++;
+            }
+            foreach ($blues as $num) {
+                if (isset($blueStats[$num])) $blueStats[$num]++;
+            }
+        }
+
+        // 4. 格式化数据，方便前端渲染 (转为对象数组)
+        $formatData = function($stats) {
+            $result = [];
+            foreach ($stats as $num => $count) {
+                $result[] = [
+                    'number' => str_pad($num, 2, '0', STR_PAD_LEFT),
+                    'count' => $count
+                ];
+            }
+            return $result;
+        };
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'red' => $formatData($redStats),
+                'blue' => $formatData($blueStats),
+                'limit' => $limit,
+                'last_issue' => $history->first()->issue
+            ]
+        ]);
     }
 }

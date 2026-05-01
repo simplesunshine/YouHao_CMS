@@ -278,4 +278,26 @@ class DltController extends Controller
         }
         return false;
     }
+
+    public function pairStats()
+    {
+        $data = Cache::remember('dlt_pair_stats_100', 3600, function () {
+            $rows = DB::table('dlt_lotto_history')->orderByDesc('issue')->limit(100)->get();
+            $counts = [];
+            foreach ($rows as $row) {
+                $numbers = [$row->front1, $row->front2, $row->front3, $row->front4, $row->front5];
+                sort($numbers);
+                $len = count($numbers);
+                for ($i = 0; $i < $len - 1; $i++) {
+                    for ($j = $i + 1; $j < $len; $j++) {
+                        $key = $numbers[$i] . ',' . $numbers[$j];
+                        $counts[$key] = ($counts[$key] ?? 0) + 1;
+                    }
+                }
+            }
+            return $counts;
+        });
+
+        return response()->json(['data' => $data]);
+    }
 }
