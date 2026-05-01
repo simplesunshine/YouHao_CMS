@@ -74,14 +74,16 @@ class DltController extends Controller
                 break;
 
             case 'first_advantage':
-                $topAdv = Cache::remember('dlt_first_adv_top5', 60, function () {
+                $firstAdvTop = Cache::remember('dlt_first_adv_top5', 60, function () {
+                    // 确保字段名为 front1
                     $issues = DB::table('dlt_lotto_history')->orderByDesc('id')->limit(80)->pluck('front1');
                     $map = [];
-                    foreach ($issues as $num) { $map[$num] = ($map[$num] ?? 0) + 1; }
+                    foreach ($issues as $num) { $map[(int)$num] = ($map[(int)$num] ?? 0) + 1; }
                     arsort($map);
                     return array_slice($map, 0, 5, true);
                 });
-                $results = $query->whereIn('front_1', array_keys($topAdv))->inRandomOrder()->take($take)->get();
+                // 筛选前区第一位红球属于 Top5 的记录
+                $results = $query->whereIn('front_1', array_keys($firstAdvTop))->inRandomOrder()->take($take)->get();
                 break;
 
             case 'connect':
@@ -169,6 +171,8 @@ class DltController extends Controller
             'success' => true,
             'data'    => $randomData,
             'remain'  => $remaining - $results->count(),
+            // 修复点：添加这个判断，返回前端渲染 Top5 用的数据
+            'first_advantage_top' => $firstAdvTop ?? null 
         ]);
     }
 

@@ -87,15 +87,27 @@ class SsqController extends Controller
                 }
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
-
             case 'first_advantage':
+                // 1. 从缓存或数据库计算最近 80 期的首红分布
                 $firstCounts = Cache::remember('ssq_last80_first_counts', 60, function () {
-                    return DB::table('ssq_lotto_history')->orderByDesc('id')->limit(80)->pluck('front1')->countBy()->toArray();
+                    // 确保字段名与你数据库一致，这里使用的是 front1
+                    return DB::table('ssq_lotto_history')
+                        ->orderByDesc('id')
+                        ->limit(80)
+                        ->pluck('front1')
+                        ->countBy()
+                        ->toArray();
                 });
+
                 arsort($firstCounts);
+                // 2. 截取前 5 名作为“优势排行”
                 $firstAdvTop = array_slice($firstCounts, 0, 5, true);
+                
+                // 3. 在推荐库中筛选第一位红球属于这 Top5 的号码
                 $results = $query->whereIn('front_1', array_keys($firstAdvTop))
-                    ->inRandomOrder()->take($take)->get();
+                    ->inRandomOrder()
+                    ->take($take)
+                    ->get();
                 break;
 
             case 'connect':
@@ -185,12 +197,22 @@ class SsqController extends Controller
             'user_id' => $user->id,
             'mode' => $type
         ]);
-
-        return response()->json([
+        
+        // 4. 构建最终响应结构
+        $response = [
             'success' => true,
             'data' => $randomData,
             'remain' => $remaining - $results->count()
-        ]);
+        ];
+
+        // --- 修复点：确保变量名与上面定义的 $firstAdvTop 一致，并赋值给前端期待的 'first_advantage_top' ---
+        if ($type === 'first_advantage') {
+            // 注意：前端代码里用的是 res.data.first_advantage_top
+            $response['first_advantage_top'] = $firstAdvTop ?? [];
+        }
+
+        return response()->json($response);
+
     }
 
     /**
@@ -316,22 +338,7 @@ class SsqController extends Controller
 
     public function pairStats()
     {
-        $data = Cache::remember('ssq_pair_stats_100', 3600, function () {
-            $rows = DB::table('ssq_lotto_history')->orderByDesc('issue')->limit(100)->get();
-            $counts = [];
-            foreach ($rows as $row) {
-                $numbers = [$row->front1, $row->front2, $row->front3, $row->front4, $row->front5, $row->front6];
-                sort($numbers);
-                for ($i = 0; $i < 5; $i++) {
-                    for ($j = $i + 1; $j < 6; $j++) {
-                        $key = $numbers[$i] . ',' . $numbers[$j];
-                        $counts[$key] = ($counts[$key] ?? 0) + 1;
-                    }
-                }
-            }
-            return $counts;
-        });
-        return response()->json(['data' => $data]);
+        return response()->json(['data' => $this->getPairStatsData()]);
     }
 
 
@@ -398,5 +405,38 @@ class SsqController extends Controller
                 'last_issue' => $history->first()->issue
             ]
         ]);
+    }
+
+    private function getHotPairs($minCount = 6)
+    {
+        return Cache::remember("ssq_hot_pairs_100_{$minCount}", 3600, function () use ($minCount) {
+            $pairStats = $this->getPairStatsData();
+            $hotPairs = [];
+            foreach ($pairStats as $key => $count) {
+                if ($count >= $minCount) $hotPairs[$key] = $count;
+            }
+            return $hotPairs;
+        });
+    }
+
+    private function getPairStatsData()
+    {
+        return Cache::remember('ssq_pair_stats_100', 3600, function () {
+            $rows = DB::table('ssq_lotto_history')->orderByDesc('issue')->limit(100)->get();
+            $counts = [];
+            foreach ($rows as $row) {
+                $numbers = [$row->front1, $row->front2, $row->front3, $row->front4, $row->front5, $row->front6];
+                sort($numbers);
+                $len = count($numbers);
+                for ($i = 0; $i < $len - 1; $i++) {
+                    for ($j = $i + 1; $j < $len; $j++) {
+                        if ($numbers[$i] == $numbers[$j]) continue;
+                        $key = $numbers[$i] . ',' . $numbers[$j];
+                        $counts[$key] = ($counts[$key] ?? 0) + 1;
+                    }
+                }
+            }
+            return $counts;
+        });
     }
 }
