@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use App\Models\LottoSsqRecommendation;
+use App\Models\BasicSsq;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 
@@ -65,13 +66,12 @@ class SsqController extends Controller
         }
 
         $results = collect();
-        $query = LottoSsqRecommendation::whereNull('ip');
+        $query = BasicSsq::whereNull('user_id');
 
         // 3. 匹配玩法逻辑
         switch ($type) {
             case 'normal':
-                $results = $query->whereIn('weight', [0, 1, 2, 3, 4, 5])
-                    ->inRandomOrder()->take($take)->get();
+                $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
             case 'dan_only':
@@ -81,8 +81,8 @@ class SsqController extends Controller
                 }
                 foreach ($dan as $num) {
                     $query->where(function ($q) use ($num) {
-                        $q->orWhere('front_1', $num)->orWhere('front_2', $num)->orWhere('front_3', $num)
-                          ->orWhere('front_4', $num)->orWhere('front_5', $num)->orWhere('front_6', $num);
+                        $q->orWhere('code1', $num)->orWhere('code2', $num)->orWhere('code3', $num)
+                          ->orWhere('code4', $num)->orWhere('code5', $num)->orWhere('code6', $num);
                     });
                 }
                 $results = $query->inRandomOrder()->take($take)->get();
@@ -104,7 +104,7 @@ class SsqController extends Controller
                 $firstAdvTop = array_slice($firstCounts, 0, 5, true);
                 
                 // 3. 在推荐库中筛选第一位红球属于这 Top5 的号码
-                $results = $query->whereIn('front_1', array_keys($firstAdvTop))
+                $results = $query->whereIn('code1', array_keys($firstAdvTop))
                     ->inRandomOrder()
                     ->take($take)
                     ->get();
@@ -118,8 +118,8 @@ class SsqController extends Controller
 
             case 'history_sum':
                 $excludeCount = (int)$request->input('exclude', 0);
-                $excludeSums = $excludeCount > 0 ? DB::table('ssq_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('front_sum')->toArray() : [];
-                if (!empty($excludeSums)) $query->whereNotIn('front_sum', $excludeSums);
+                $excludeSums = $excludeCount > 0 ? DB::table('ssq_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('sum')->toArray() : [];
+                if (!empty($excludeSums)) $query->whereNotIn('sum', $excludeSums);
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
@@ -136,8 +136,8 @@ class SsqController extends Controller
                 break;
 
             case 'first_last':
-                if (!empty($prefs['first'])) $query->where('front_1', $prefs['first']);
-                if (!empty($prefs['last'])) $query->where('front_6', $prefs['last']);
+                if (!empty($prefs['first'])) $query->where('code1', $prefs['first']);
+                if (!empty($prefs['last'])) $query->where('code6', $prefs['last']);
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
@@ -157,8 +157,8 @@ class SsqController extends Controller
             $base = [
                 'id' => $row->id,
                 'issue' => $issue,
-                'front_numbers' => $row->front_numbers,
-                'back_numbers'  => $row->back_numbers,
+                'front_numbers' => $row->front,
+                'back_numbers'  => $row->back,
             ];
 
             if (!in_array($type, ['connect', 'history_span'])) {
@@ -181,8 +181,8 @@ class SsqController extends Controller
                 'is_fushi'      => 0,
                 'issue'         => $issue,
                 'mode'          => $type,
-                'red_numbers'   => $row->front_numbers,
-                'blue_numbers'  => $row->back_numbers,
+                'red_numbers'   => $row->front,
+                'blue_numbers'  => $row->back,
                 'red_dan'       => '',
                 'ip'            => $ip,
                 'created_at'    => now(),
@@ -192,10 +192,8 @@ class SsqController extends Controller
         DB::table('user_lotto_records')->insert($records);
 
         // 更新机选库标记
-        LottoSsqRecommendation::whereIn('id', $results->pluck('id'))->update([
-            'ip' => $ip,
-            'user_id' => $user->id,
-            'mode' => $type
+            BasicSsq::whereIn('id', $results->pluck('id'))->update([
+            'user_id' => $user->id
         ]);
         
         // 4. 构建最终响应结构
@@ -254,7 +252,7 @@ class SsqController extends Controller
     public function download(Request $request)
     {
         $ip = $request->ip();
-        $list = LottoSsqRecommendation::where('ip', $ip)->orderBy('id')->get();
+        $list = BasicSsq::where('ip', $ip)->orderBy('id')->get();
         if ($list->isEmpty()) return response()->json(['success' => false, 'message' => '暂无可下载数据'], 404);
         $content = '';
         foreach ($list as $i => $row) {
@@ -273,8 +271,8 @@ class SsqController extends Controller
             if (!$last) return null;
             return [
                 'span' => $last->span,
-                'front_sum' => $last->front_sum,
-                'zone_ratio' => explode(',', $last->zone_ratio),
+                'sum'  => $last->sum,
+                'zone_ratio' => explode(':', $last->zone_ratio),
                 'cold_numbers' => json_decode($last->next_red_max_miss_json, true) ?? []
             ];
         });
@@ -298,14 +296,14 @@ class SsqController extends Controller
 
     private function buildFeatures($row, $last, $posCounts, $hotPairs)
     {
-        $reds = array_map('intval', explode(',', $row->front_numbers));
+        $reds = array_map('intval', explode(',', $row->front));
         sort($reds);
         $cold = array_values(array_intersect($reds, $last['cold_numbers']));
         $zoneSame = ($row->zone1_count == $last['zone_ratio'][0] && $row->zone2_count == $last['zone_ratio'][1] && $row->zone3_count == $last['zone_ratio'][2]);
         $posAppear = [];
         $lowPosNums = [];
         for ($i = 1; $i <= 6; $i++) {
-            $num = $row->{'front_' . $i};
+            $num = $row->{'code' . $i};
             $count = $posCounts[$i][$num] ?? 0;
             $posAppear[] = $count;
             if ($count === 0) $lowPosNums[] = $num;
@@ -323,7 +321,7 @@ class SsqController extends Controller
         }
         return [
             'span_same' => $row->span == $last['span'],
-            'sum_same'  => $row->front_sum == $last['front_sum'],
+            'sum_same'  => $row->sum == $last['sum'],
             'zone_same' => $zoneSame,
             'cold_numbers' => $cold,
             'pos_appear'   => $posAppear,
@@ -331,7 +329,6 @@ class SsqController extends Controller
             'pair_hit'   => !empty($hitPairs),
             'pair_score' => $pairScore,
             'hit_pairs'  => $hitPairs,
-            'weight'     => $row->weight,
             'continue_count' => $row->consecutive_count
         ];
     }
@@ -439,4 +436,115 @@ class SsqController extends Controller
             return $counts;
         });
     }
+
+
+
+    /**
+     * 深度演算评分报告（新增：近6期热号关联分析）
+     */
+    public function score(Request $request)
+    {
+        $id = $request->input('id');
+        if (!$id) return response()->json(['success' => false, 'message' => '参数缺失']);
+
+        // 1. 获取机选数据
+        $row = DB::table('basic_ssq')->where('id', $id)->first();
+        if (!$row) return response()->json(['success' => false, 'message' => '未找到该号码']);
+
+        // 2. 获取历史数据
+        // 拿 6 期用于热号分析
+        $recentHistory = DB::table('ssq_lotto_history')->orderBy('id', 'desc')->limit(6)->get();
+        if ($recentHistory->isEmpty()) return response()->json(['success' => false, 'message' => '历史数据为空']);
+        
+        $latestHistory = $recentHistory->first();
+
+        // --- 核心逻辑 A：计算近6期高频热号 ---
+        $allRecentReds = [];
+        foreach ($recentHistory as $h) {
+            // 假设字段名为 front1...front6
+            $allRecentReds = array_merge($allRecentReds, [
+                (int)$h->front1, (int)$h->front2, (int)$h->front3, 
+                (int)$h->front4, (int)$h->front5, (int)$h->front6
+            ]);
+        }
+        // 统计出现次数
+        $counts = array_count_values($allRecentReds);
+        // 取出出现次数 >= 2 的号码集合
+        $hotNumbers = array_keys(array_filter($counts, fn($v) => $v >= 2));
+
+        // --- 核心逻辑 B：计算当前号码与热号的交集 ---
+        $currentReds = [(int)$row->code1, (int)$row->code2, (int)$row->code3, (int)$row->code4, (int)$row->code5, (int)$row->code6];
+        $intersect = array_intersect($currentReds, $hotNumbers);
+
+        // --- 核心变量准备（趋势拦截） ---
+        $currentSumTail = (int)$row->sum % 10;
+        $lastSumTail = (int)$latestHistory->sum % 10;
+        $lastSumTailCount = (int)$latestHistory->continuous_sum_tail;
+        
+        $currentSpan = (int)$row->span;
+        $lastSpan = (int)$latestHistory->span;
+        $lastSpanCount = (int)$latestHistory->continuous_span_count;
+
+        $currentZoneRatio = "{$row->zone1_count}:{$row->zone2_count}:{$row->zone3_count}";
+        $lastZoneRatio = $latestHistory->zone_ratio;
+        $lastZoneCount = (int)$latestHistory->continuous_zone_count;
+
+        // --- 3. 最高优先级拦截 (命中直接返回) ---
+        if ($row->odd_count == 6) {
+            return response()->json(['success' => true, 'data' => ['weight' => 60, 'reason' => "全奇数形态，今年至今未出，可适当关注。"]]);
+        }
+        if ($row->even_count == 6 || $row->odd_count == 0) {
+            return response()->json(['success' => true, 'data' => ['weight' => 55, 'reason' => "全偶数形态，深度遗漏，存在反弹可能。"]]);
+        }
+
+        // --- 4. 综合评分逻辑 ---
+        $reasons = [];
+        $baseScore = 95;
+
+        // [新功能] 热号连接分析
+        if (count($intersect) === 0) {
+            $baseScore -= 30;
+            $reasons[] = "近6期高频热号（出现2次及以上）在当前组合中完全缺席，属于极致爆冷形态。";
+        }
+
+        // 区间比拦截
+        if ($currentZoneRatio === $lastZoneRatio && $lastZoneCount >= 2) {
+            $baseScore -= 50;
+            $reasons[] = "区间比（{$currentZoneRatio}）已连续出现2期，期望值不高，自行拿捏。";
+        }
+
+        // 和值个位同尾拦截
+        $potentialSumTailCount = ($currentSumTail === $lastSumTail) ? $lastSumTailCount + 1 : 1;
+        if ($potentialSumTailCount >= 4) {
+            return response()->json(['success' => true, 'data' => ['weight' => 10, 'reason' => "和值个位将达成【{$potentialSumTailCount}连开】，历史极难突破4连，风险极大。"]]);
+        } elseif ($potentialSumTailCount == 3) {
+            $baseScore -= 50;
+            $reasons[] = "和值个位已连出2次，走热概率大幅减弱。";
+        }
+
+        // 跨度拦截
+        if ($currentSpan === $lastSpan && $lastSpanCount >= 2) {
+            $baseScore -= 60;
+            $reasons[] = "跨度（{$currentSpan}）已连续2期相同，继续重复的期望值较低。";
+        }
+
+        // 跨度小
+        if ($row->span < 15) {
+            $baseScore -= 20;
+            $reasons[] = "跨度 < 15（低概率形态）。";
+        }
+
+        if (empty($reasons)) {
+            $reasons[] = "号码形态分布较为均衡，各项指标符合常规历史规律。";
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'weight' => max(0, $baseScore),
+                'reason' => implode(' ', $reasons)
+            ]
+        ]);
+    }
+
 }

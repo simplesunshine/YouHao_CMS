@@ -66,6 +66,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // --- 双色球 (SSQ) 核心机选 ---
     Route::post('/ssq/pick', [SsqController::class, 'pick']);
     Route::get('/ssq/download', [SsqController::class, 'download']);
+
+    Route::get('/ssq/score', [SsqController::class, 'score']); // 新加的评分详情
     
     // SSQ 复式相关
     Route::get('/ssq/fushi/normal_fushi', [SsqFushiController::class, 'normalFushi']);
