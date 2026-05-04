@@ -439,8 +439,9 @@ class SsqController extends Controller
 
 
 
-    /**
-     * 深度演算评分报告（新增：近6期热号关联分析）
+        /**
+     * 深度演算评分报告
+     * 整合：热号、重号、极端重号、连号复刻、形态拦截、遗漏规避
      */
     public function score(Request $request)
     {
@@ -452,44 +453,82 @@ class SsqController extends Controller
         if (!$row) return response()->json(['success' => false, 'message' => '未找到该号码']);
 
         // 2. 获取历史数据
-        // 拿 6 期用于热号分析
         $recentHistory = DB::table('ssq_lotto_history')->orderBy('id', 'desc')->limit(6)->get();
         if ($recentHistory->isEmpty()) return response()->json(['success' => false, 'message' => '历史数据为空']);
         
         $latestHistory = $recentHistory->first();
 
+        // --- 基础数据准备 ---
+        $currentReds = [
+            (int)$row->code1, (int)$row->code2, (int)$row->code3, 
+            (int)$row->code4, (int)$row->code5, (int)$row->code6
+        ];
+        sort($currentReds); // 排序以便进行连号和子集比对
+
+        $lastReds = [
+            (int)$latestHistory->front1, (int)$latestHistory->front2, (int)$latestHistory->front3, 
+            (int)$latestHistory->front4, (int)$latestHistory->front5, (int)$latestHistory->front6
+        ];
+        sort($lastReds);
+
+        // --- 综合评分变量 ---
+        $reasons = [];
+        $baseScore = 95;
+
         // --- 核心逻辑 A：计算近6期高频热号 ---
         $allRecentReds = [];
         foreach ($recentHistory as $h) {
-            // 假设字段名为 front1...front6
             $allRecentReds = array_merge($allRecentReds, [
                 (int)$h->front1, (int)$h->front2, (int)$h->front3, 
                 (int)$h->front4, (int)$h->front5, (int)$h->front6
             ]);
         }
-        // 统计出现次数
         $counts = array_count_values($allRecentReds);
-        // 取出出现次数 >= 2 的号码集合
         $hotNumbers = array_keys(array_filter($counts, fn($v) => $v >= 2));
+        $hotIntersect = array_intersect($currentReds, $hotNumbers);
 
-        // --- 核心逻辑 B：计算当前号码与热号的交集 ---
-        $currentReds = [(int)$row->code1, (int)$row->code2, (int)$row->code3, (int)$row->code4, (int)$row->code5, (int)$row->code6];
-        $intersect = array_intersect($currentReds, $hotNumbers);
+        // --- 核心逻辑 B：重号（邻期重复）多维拦截 ---
+        $currentDuplicateWithLast = array_intersect($currentReds, $lastReds);
+        $currentDupCount = count($currentDuplicateWithLast);
+        $lastSelfDupCount = (int)$latestHistory->duplicate_count;
 
-        // --- 核心变量准备（趋势拦截） ---
-        $currentSumTail = (int)$row->sum % 10;
-        $lastSumTail = (int)$latestHistory->sum % 10;
-        $lastSumTailCount = (int)$latestHistory->continuous_sum_tail;
-        
-        $currentSpan = (int)$row->span;
-        $lastSpan = (int)$latestHistory->span;
-        $lastSpanCount = (int)$latestHistory->continuous_span_count;
+        // --- 核心逻辑 C：【新增】连号复刻拦截 (针对上期出现的连号组) ---
+        // 1. 提取上期的连号组
+        $lastConsecutiveSets = [];
+        $tempSet = [$lastReds[0]];
+        for ($i = 1; $i < count($lastReds); $i++) {
+            if ($lastReds[$i] == $lastReds[$i - 1] + 1) {
+                $tempSet[] = $lastReds[$i];
+            } else {
+                if (count($tempSet) >= 2) $lastConsecutiveSets[] = $tempSet;
+                $tempSet = [$lastReds[$i]];
+            }
+        }
+        if (count($tempSet) >= 2) $lastConsecutiveSets[] = $tempSet;
 
-        $currentZoneRatio = "{$row->zone1_count}:{$row->zone2_count}:{$row->zone3_count}";
-        $lastZoneRatio = $latestHistory->zone_ratio;
-        $lastZoneCount = (int)$latestHistory->continuous_zone_count;
+        // 2. 检查当前组合是否包含相同的连号组
+        foreach ($lastConsecutiveSets as $set) {
+            // 如果上期的连号组是当前红球的子集
+            if (count(array_intersect($currentReds, $set)) === count($set)) {
+                $baseScore -= 60;
+                $setStr = implode('-', $set);
+                $reasons[] = "连号复刻警告：包含了与上期完全相同的连号组({$setStr})，此类形态连开概率极低。";
+                break; // 命中一次即扣分
+            }
+        }
 
-        // --- 3. 最高优先级拦截 (命中直接返回) ---
+        // --- 核心逻辑 D：遗漏最大值规避拦截 ---
+        $maxMissNums = json_decode($latestHistory->next_red_max_miss_json, true) ?: [];
+        if (!empty($maxMissNums)) {
+            $missIntersect = array_intersect($currentReds, $maxMissNums);
+            if (!empty($missIntersect)) {
+                $baseScore -= 5;
+                $missStr = implode(',', $missIntersect);
+                $reasons[] = "号码中包含历史遗漏最大值({$missStr})。";
+            }
+        }
+
+        // --- 3. 最高优先级：特殊全形态拦截 ---
         if ($row->odd_count == 6) {
             return response()->json(['success' => true, 'data' => ['weight' => 60, 'reason' => "全奇数形态，今年至今未出，可适当关注。"]]);
         }
@@ -497,51 +536,69 @@ class SsqController extends Controller
             return response()->json(['success' => true, 'data' => ['weight' => 55, 'reason' => "全偶数形态，深度遗漏，存在反弹可能。"]]);
         }
 
-        // --- 4. 综合评分逻辑 ---
-        $reasons = [];
-        $baseScore = 95;
+        // --- 4. 核心扣分逻辑 ---
 
-        // [新功能] 热号连接分析
-        if (count($intersect) === 0) {
-            $baseScore -= 30;
-            $reasons[] = "近6期高频热号（出现2次及以上）在当前组合中完全缺席，属于极致爆冷形态。";
-        }
-
-        // 区间比拦截
-        if ($currentZoneRatio === $lastZoneRatio && $lastZoneCount >= 2) {
+        // [逻辑 1] 重号拦截
+        $isExtremeDup = ($currentDupCount >= 4);
+        $isInertiaDup = ($lastSelfDupCount > 2 && $currentDupCount > 2);
+        if ($isExtremeDup || $isInertiaDup) {
             $baseScore -= 50;
-            $reasons[] = "区间比（{$currentZoneRatio}）已连续出现2期，期望值不高，自行拿捏。";
+            $numsStr = implode(',', $currentDuplicateWithLast);
+            if ($isExtremeDup) {
+                $reasons[] = "极端重号风险：与上期重复高达 {$currentDupCount} 个号码({$numsStr})。";
+            } else {
+                $reasons[] = "重号惯性拦截：上期已出 {$lastSelfDupCount} 个重号，本组合重复数({$currentDupCount})过多({$numsStr})。";
+            }
         }
 
-        // 和值个位同尾拦截
+        // [逻辑 2] 热号连接分析
+        if (count($hotIntersect) === 0) {
+            $baseScore -= 30;
+            $reasons[] = "近6期高频热号在当前组合中完全缺席。";
+        }
+
+        // [逻辑 3] 区间比重复拦截
+        $currentZoneRatio = "{$row->zone1_count}:{$row->zone2_count}:{$row->zone3_count}";
+        if ($currentZoneRatio === $latestHistory->zone_ratio && (int)$latestHistory->continuous_zone_count >= 2) {
+            $baseScore -= 50;
+            $reasons[] = "区间比（{$currentZoneRatio}）已连续出现2期。";
+        }
+
+        // [逻辑 4] 和值个位拦截
+        $currentSumTail = (int)$row->sum % 10;
+        $lastSumTail = (int)$latestHistory->sum % 10;
+        $lastSumTailCount = (int)$latestHistory->continuous_sum_tail;
         $potentialSumTailCount = ($currentSumTail === $lastSumTail) ? $lastSumTailCount + 1 : 1;
+
         if ($potentialSumTailCount >= 4) {
-            return response()->json(['success' => true, 'data' => ['weight' => 10, 'reason' => "和值个位将达成【{$potentialSumTailCount}连开】，历史极难突破4连，风险极大。"]]);
+            return response()->json(['success' => true, 'data' => ['weight' => 10, 'reason' => "和值个位将达成【{$potentialSumTailCount}连开】，风险极大。"]]);
         } elseif ($potentialSumTailCount == 3) {
             $baseScore -= 50;
-            $reasons[] = "和值个位已连出2次，走热概率大幅减弱。";
+            $reasons[] = "和值个位已连出2次。";
         }
 
-        // 跨度拦截
-        if ($currentSpan === $lastSpan && $lastSpanCount >= 2) {
+        // [逻辑 5] 跨度连续拦截
+        $currentSpan = (int)$row->span;
+        if ($currentSpan === (int)$latestHistory->span && (int)$latestHistory->continuous_span_count >= 2) {
             $baseScore -= 60;
-            $reasons[] = "跨度（{$currentSpan}）已连续2期相同，继续重复的期望值较低。";
+            $reasons[] = "跨度（{$currentSpan}）已连续2期相同。";
         }
 
-        // 跨度小
+        // [逻辑 6] 跨度异常拦截
         if ($row->span < 15) {
             $baseScore -= 20;
-            $reasons[] = "跨度 < 15（低概率形态）。";
+            $reasons[] = "跨度过小（<15）。";
         }
 
+        // --- 5. 结果合成 ---
         if (empty($reasons)) {
-            $reasons[] = "号码形态分布较为均衡，各项指标符合常规历史规律。";
+            $reasons[] = "号码形态分布均衡，各项指标符合常规历史走势规律。";
         }
 
         return response()->json([
             'success' => true,
             'data' => [
-                'weight' => max(0, $baseScore),
+                'weight' => max(0, (int)$baseScore),
                 'reason' => implode(' ', $reasons)
             ]
         ]);
