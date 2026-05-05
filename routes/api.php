@@ -10,7 +10,7 @@ use App\Http\Controllers\Api\SsqController;
 use App\Http\Controllers\Api\LotterySettingApiController;
 use App\Http\Controllers\Api\OpenResultController;
 use App\Http\Controllers\Api\NewsController;
-use App\Http\Controllers\Api\LottoCheckController;
+use App\Http\Controllers\Api\LottoAnalysisController;
 use App\Http\Controllers\Api\SsqFushiController;
 use App\Http\Controllers\Api\DltFushiController;
 use App\Http\Controllers\Api\LottoRecordController;
@@ -86,5 +86,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dlt/fushi/dantuo_fushi', [DltFushiController::class, 'dantuoFushi']);
 
     // 自选号码查询 (既然选号逻辑需登录，查询也放进来)
-    Route::post('lotto/check-front-exists', [LottoCheckController::class, 'checkFrontExists']);
+    Route::post('lotto/analysis', [LottoAnalysisController::class, 'index']);
 });

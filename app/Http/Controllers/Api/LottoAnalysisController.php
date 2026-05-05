@@ -6,9 +6,9 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\DB;
 
-class LottoCheckController extends Controller
+class LottoAnalysisController extends Controller
 {
-    public function checkFrontExists(Request $request)
+    public function index(Request $request)
     {
         $type = $request->input('type', 'ssq');
         $frontNumbers = $request->input('front_numbers');
@@ -29,8 +29,8 @@ class LottoCheckController extends Controller
         $historyTable = $isSsq ? 'ssq_lotto_history' : 'dlt_lotto_history';
 
         // 2. 查询机选演算库
-        $recTable = $isSsq ? 'lotto_ssq_recommendations' : 'lotto_dlt_recommendations';
-        $recRecord = DB::table($recTable)->where('front_numbers', $frontStr)->first();
+        $recTable = $isSsq ? 'basic_ssq' : 'basic_dlt';
+        $recRecord = DB::table($recTable)->where('front', $frontStr)->first();
         $exists = !is_null($recRecord);
 
         // 3. 实时特征
@@ -112,8 +112,8 @@ class LottoCheckController extends Controller
             }
             
             // 如果分字段没拿到数据，退而求其次解析字符串
-            if (empty($hNums) && isset($h->front_numbers)) {
-                $hNums = array_filter(array_map('intval', preg_split('/[,\s]+/', trim($h->front_numbers))));
+            if (empty($hNums) && isset($h->front)) {
+                $hNums = array_filter(array_map('intval', preg_split('/[,\s]+/', trim($h->front))));
             }
 
             // 计算交集
@@ -121,7 +121,7 @@ class LottoCheckController extends Controller
 
             // 3. 应用动态门槛
             if ($hitCount >= $minHit) {
-                $showNum = $h->front_numbers ?? implode(',', $hNums);
+                $showNum = $h->front ?? implode(',', $hNums);
                 $showBack = '';
                 if (isset($h->back_numbers)) {
                     $showBack = ' 后区:'.$h->back_numbers;
@@ -154,7 +154,7 @@ class LottoCheckController extends Controller
         try {
             DB::table('user_lotto_queries')->insert([
                 'lotto_type'    => $type === 'ssq' ? 1 : 2,
-                'front_numbers' => $frontStr,
+                'front'         => $frontStr,
                 'ip'            => $request->ip(),
                 'hit_library'   => $exists ? 1 : 0,
                 'created_at'    => now(),
