@@ -68,6 +68,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ssq/download', [SsqController::class, 'download']);
 
     Route::get('/ssq/score', [SsqController::class, 'score']); // 新加的评分详情
+    Route::get('/dlt/score', [DltController::class, 'score']); // 新加的评分详情
+
     
     // SSQ 复式相关
     Route::get('/ssq/fushi/normal_fushi', [SsqFushiController::class, 'normalFushi']);

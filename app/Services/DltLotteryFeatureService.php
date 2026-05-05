@@ -22,7 +22,7 @@ class DltLotteryFeatureService
 
             return [
                 'span'       => $last->span,
-                'front_sum'  => $last->front_sum,
+                'sum'        => $last->sum,
                 'zone_ratio' => explode(',', $last->zone_ratio),
 
                 // ⭐ 冷号统一来源
@@ -68,7 +68,7 @@ class DltLotteryFeatureService
      */
     public static function buildFeatures($row, $last, $posCounts)
     {
-        $reds = array_map('intval', explode(',', $row->front_numbers));
+        $reds = array_map('intval', explode(',', $row->front));
 
         // 冷号命中
         $coldHit = array_values(array_intersect($reds, $last['cold_numbers']));
@@ -86,7 +86,7 @@ class DltLotteryFeatureService
 
         for ($i = 1; $i <= 5; $i++) {
 
-            $num = $row->{'front_'.$i};
+            $num = $row->{'code'.$i};
 
             $count = $posCounts[$i][$num] ?? 0;
 
@@ -99,12 +99,11 @@ class DltLotteryFeatureService
 
         return [
             'span_same'      => $row->span == $last['span'],
-            'sum_same'       => $row->front_sum == $last['front_sum'],
+            'sum_same'       => $row->sum == $last['sum'],
             'zone_same'      => $zoneSame,
             'cold_numbers'   => $coldHit,
             'continue_count' => $row->consecutive_count,
             'pos_appear'     => $posAppear,
-            'weight'         => $row->weight,
             'low_pos_nums'   => $lowPosNums
             
         ];
@@ -120,8 +119,8 @@ class DltLotteryFeatureService
 
         return [
             'id' => $row->id,
-            'front_numbers' => $row->front_numbers,
-            'back_numbers' => $row->back_numbers,
+            'front_numbers' => $row->front,
+            'back_numbers' => $row->back,
 
             'features' => self::buildFeatures($row, $last, $pos)
         ];

@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
-use App\Models\LottoDltRecommendation;
+use App\Models\BasicDlt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use App\Services\DltLotteryFeatureService;
@@ -65,7 +65,7 @@ class DltController extends Controller
 
         $service = new DltLotteryFeatureService();
         $results = collect();
-        $query = LottoDltRecommendation::whereNull('ip');
+        $query = BasicDlt::whereNull('user_id');
 
         // 3. 玩法逻辑分支
         switch ($type) {
@@ -83,7 +83,7 @@ class DltController extends Controller
                     return array_slice($map, 0, 5, true);
                 });
                 // 筛选前区第一位红球属于 Top5 的记录
-                $results = $query->whereIn('front_1', array_keys($firstAdvTop))->inRandomOrder()->take($take)->get();
+                $results = $query->whereIn('code1', array_keys($firstAdvTop))->inRandomOrder()->take($take)->get();
                 break;
 
             case 'connect':
@@ -97,7 +97,7 @@ class DltController extends Controller
                 if (empty($frontDan) || count($frontDan) > 4) return response()->json(['success' => false, 'message' => '前区胆码数量 1-4 个'], 400);
                 foreach ($frontDan as $num) {
                     $query->where(function ($q) use ($num) {
-                        $q->orWhere('front_1', $num)->orWhere('front_2', $num)->orWhere('front_3', $num)->orWhere('front_4', $num)->orWhere('front_5', $num);
+                        $q->orWhere('code1', $num)->orWhere('code2', $num)->orWhere('code3', $num)->orWhere('code4', $num)->orWhere('code5', $num);
                     });
                 }
                 $results = $query->inRandomOrder()->take($take)->get();
@@ -105,8 +105,8 @@ class DltController extends Controller
 
             case 'history_sum':
                 $excludeCount = (int)$request->input('exclude', 0);
-                $excludeSums = $excludeCount > 0 ? DB::table('dlt_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('front_sum')->toArray() : [];
-                if (!empty($excludeSums)) $query->whereNotIn('front_sum', $excludeSums);
+                $excludeSums = $excludeCount > 0 ? DB::table('dlt_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('sum')->toArray() : [];
+                if (!empty($excludeSums)) $query->whereNotIn('sum', $excludeSums);
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
@@ -117,8 +117,8 @@ class DltController extends Controller
                 break;
 
             case 'first_last':
-                if (!empty($prefs['first'])) $query->where('front_1', $prefs['first']);
-                if (!empty($prefs['last'])) $query->where('front_5', $prefs['last']);
+                if (!empty($prefs['first'])) $query->where('code1', $prefs['first']);
+                if (!empty($prefs['last'])) $query->where('code5', $prefs['last']);
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
@@ -148,12 +148,11 @@ class DltController extends Controller
                 'is_fushi'      => 0, // 机选默认为单式
                 'issue'         => $issue,
                 'mode'          => $type,
-                'red_numbers'   => $row->front_numbers, // 前区
-                'blue_numbers'  => $row->back_numbers,  // 后区
+                'red_numbers'   => $row->front, // 前区
+                'blue_numbers'  => $row->back,  // 后区
                 'red_dan'       => '',
                 'kill_numbers'  => '',
                 'is_win'        => 0,
-                'ip'            => $ip,
                 'created_at'    => now(),
                 'updated_at'    => now(),
             ];
@@ -161,10 +160,8 @@ class DltController extends Controller
         DB::table('user_lotto_records')->insert($records);
 
         // 标记推荐池记录
-        LottoDltRecommendation::whereIn('id', $results->pluck('id'))->update([
-            'ip'      => $ip,
-            'user_id' => $user->id,
-            'mode'    => $type
+        BasicDlt::whereIn('id', $results->pluck('id'))->update([
+            'user_id' => $user->id
         ]);
 
         return response()->json([
@@ -243,8 +240,8 @@ class DltController extends Controller
             'success' => true,
             'data' => [
                 'issue'         => $issue,
-                'front_numbers' => $last->front_numbers,
-                'back_numbers'  => $last->back_numbers,
+                'front_numbers' => $last->front,
+                'back_numbers'  => $last->back,
                 'features' => [
                     'cold_numbers'   => $coldNumbers,
                     'continue_count' => $last->continue_count ?? 0
@@ -303,5 +300,141 @@ class DltController extends Controller
         });
 
         return response()->json(['data' => $data]);
+    }
+
+
+    
+        /**
+     * 大乐透深度演算评分报告
+     * 整合：高频重号压制、断区趋势预警、和尾连开拦截、和值区间停留拦截、形态拦截
+     */
+    public function score(Request $request)
+    {
+        $id = $request->input('id');
+        if (!$id) return response()->json(['success' => false, 'message' => '参数缺失']);
+
+        // 1. 获取机选数据
+        $row = DB::table('basic_dlt')->where('id', $id)->first();
+        if (!$row) return response()->json(['success' => false, 'message' => '未找到该号码']);
+
+        // 2. 获取历史数据 (最近 10 期)
+        $recentHistory = DB::table('dlt_lotto_history')->orderBy('id', 'desc')->limit(10)->get();
+        if ($recentHistory->isEmpty()) return response()->json(['success' => false, 'message' => '历史数据为空']);
+        
+        $latestHistory = $recentHistory->first();
+
+        // --- 基础数据准备 ---
+        $currentFronts = [(int)$row->code1, (int)$row->code2, (int)$row->code3, (int)$row->code4, (int)$row->code5];
+        sort($currentFronts);
+
+        $lastFronts = [(int)$latestHistory->front1, (int)$latestHistory->front2, (int)$latestHistory->front3, (int)$latestHistory->front4, (int)$latestHistory->front5];
+        sort($lastFronts);
+
+        $reasons = [];
+        $baseScore = 95;
+
+        // --- 核心逻辑 A：重号拦截与极限压制 ---
+        $currentDuplicateWithLast = array_intersect($currentFronts, $lastFronts);
+        $currentDupCount = count($currentDuplicateWithLast);
+        $lastPeriodDupCount = (int)$latestHistory->duplicate_count; 
+
+        if ($lastPeriodDupCount >= 3 && $currentDupCount >= 3) {
+            $baseScore -= 90;
+            $numsStr = implode(',', $currentDuplicateWithLast);
+            $reasons[] = "形态高频过载：上期已出现 {$lastPeriodDupCount} 个重号，本组合再次出现 {$currentDupCount} 个重号({$numsStr})。";
+        } elseif ($currentDupCount >= 3) {
+            $baseScore -= 40;
+            $reasons[] = "重号偏多：与上期重复 {$currentDupCount} 个号码。";
+        }
+
+        // --- 核心逻辑 B：和值区间停留拦截 (新增) ---
+        // 假设和值区间按 10 分段计算 (floor(sum/10))
+        $currentSumRange = floor((int)$row->sum / 10);
+        $lastSumRange = floor((int)$latestHistory->sum / 10);
+        $lastSumRangeCount = (int)$latestHistory->continuous_sum_range; // 数据库记录的连续区间计数
+
+        if ($currentSumRange == $lastSumRange && $lastSumRangeCount >= 2) {
+            $baseScore -= 30;
+            $rangeStart = $currentSumRange * 10;
+            $rangeEnd = $rangeStart + 9;
+            $reasons[] = "和值区间过热：和值已连续 2 期停留在 {$rangeStart}-{$rangeEnd} 范围内，本组合再次落入该区间，开出概率极低。";
+        }
+
+        // --- 核心逻辑 C：区间比与断区预警逻辑 ---
+        $last3History = $recentHistory->take(3);
+        $historyHasBrokenZone = false;
+        foreach ($last3History as $h) {
+            $ratios = explode(':', $h->zone_ratio);
+            if (in_array('0', $ratios)) { $historyHasBrokenZone = true; break; }
+        }
+        $currentIsBroken = ($row->zone1_count == 0 || $row->zone2_count == 0 || $row->zone3_count == 0);
+
+        if (!$historyHasBrokenZone && !$currentIsBroken) {
+            $baseScore -= 10;
+            $reasons[] = "历史趋近断区号：最近3期均未出现断区，当前组合亦无断区，警惕反弹。";
+        }
+
+        // --- 核心逻辑 D：和值个位（和尾）连开拦截 ---
+        $currentSumTail = (int)$row->sum % 10;
+        $lastSumTail = (int)$latestHistory->sum % 10;
+        $lastSumTailCount = (int)$latestHistory->continuous_sum_tail;
+
+        if ($currentSumTail === $lastSumTail && $lastSumTailCount >= 2) {
+            $baseScore -= 50;
+            $reasons[] = "和值个位（{$currentSumTail}）已连开 2 期，执行拦截。";
+        }
+
+        // --- 核心逻辑 E：连号复刻拦截 ---
+        $lastConsecutiveSets = [];
+        $tempSet = [$lastFronts[0]];
+        for ($i = 1; $i < count($lastFronts); $i++) {
+            if ($lastFronts[$i] == $lastFronts[$i - 1] + 1) {
+                $tempSet[] = $lastFronts[$i];
+            } else {
+                if (count($tempSet) >= 2) $lastConsecutiveSets[] = $tempSet;
+                $tempSet = [$lastFronts[$i]];
+            }
+        }
+        if (count($tempSet) >= 2) $lastConsecutiveSets[] = $tempSet;
+
+        foreach ($lastConsecutiveSets as $set) {
+            if (count(array_intersect($currentFronts, $set)) === count($set)) {
+                $baseScore -= 60;
+                $setStr = implode('-', $set);
+                $reasons[] = "连号复刻警告：包含了与上期相同的连号组({$setStr})。";
+                break; 
+            }
+        }
+
+        // --- 核心逻辑 F：热号及其他形态 ---
+        $allRecentFronts = [];
+        foreach ($recentHistory as $h) {
+            $allRecentFronts = array_merge($allRecentFronts, [(int)$h->front1, (int)$h->front2, (int)$h->front3, (int)$h->front4, (int)$h->front5]);
+        }
+        $counts = array_count_values($allRecentFronts);
+        $hotNumbers = array_keys(array_filter($counts, fn($v) => $v >= 3));
+        $hotIntersect = array_intersect($currentFronts, $hotNumbers);
+
+        if (count($hotIntersect) === 0) {
+            $baseScore -= 60;
+            $reasons[] = "未包含近 10 期内的高频热号。";
+        }
+
+        if ($row->odd_count == 5 || $row->odd_count == 0) {
+            return response()->json(['success' => true, 'data' => ['weight' => 50, 'reason' => "极端奇偶形态，建议防御。"]]);
+        }
+
+        // --- 结果合成 ---
+        if (empty($reasons)) {
+            $reasons[] = "号码各项指标分布均衡，符合大乐透常规历史走势。";
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'weight' => max(0, (int)$baseScore),
+                'reason' => implode(' ', $reasons)
+            ]
+        ]);
     }
 }
