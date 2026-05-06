@@ -9,7 +9,7 @@ use App\Http\Controllers\Api\DltController;
 use App\Http\Controllers\Api\SsqController;
 use App\Http\Controllers\Api\LotterySettingApiController;
 use App\Http\Controllers\Api\OpenResultController;
-use App\Http\Controllers\Api\NewsController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\LottoAnalysisController;
 use App\Http\Controllers\Api\SsqFushiController;
 use App\Http\Controllers\Api\DltFushiController;
@@ -31,8 +31,10 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::get('/lottery/settings', [LotterySettingApiController::class, 'index']);
 Route::get('/current-issue', [LotterySettingApiController::class, 'currentIssue']);
 Route::get('/open-result/latest', [OpenResultController::class, 'latest']);
-Route::get('/news/ssq', [NewsController::class, 'ssq']);
-Route::get('/news/dlt', [NewsController::class, 'dlt']);
+
+// 使用 {type} 占位符，匹配 /api/dashboard/ssq 或 /api/dashboard/dlt
+Route::get('/dashboard/{type}', [DashboardController::class, 'index'])
+    ->where('type', 'ssq|dlt'); // 这里的正则约束能防止非法参数进入后端逻辑
 
 // 历史开奖与统计 (通常开放给用户看，无需登录)
 Route::get('/ssq-history', [OpenResultController::class, 'ssqHistory']);
