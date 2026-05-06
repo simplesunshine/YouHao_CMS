@@ -432,9 +432,9 @@ class SsqController extends Controller
 
 
 
-        /**
+    /**
      * 深度演算评分报告
-     * 整合：热号、重号、极端重号、连号复刻、形态拦截、遗漏规避
+     * 整合：热号、重号、极端重号、连号复刻、形态拦截、遗漏规避、历史重号走势
      */
     public function score(Request $request)
     {
@@ -445,7 +445,7 @@ class SsqController extends Controller
         $row = DB::table('basic_ssq')->where('id', $id)->first();
         if (!$row) return response()->json(['success' => false, 'message' => '未找到该号码']);
 
-        // 2. 获取历史数据
+        // 2. 获取历史数据 (增加到最近 6 期以确保逻辑覆盖)
         $recentHistory = DB::table('ssq_lotto_history')->orderBy('id', 'desc')->limit(6)->get();
         if ($recentHistory->isEmpty()) return response()->json(['success' => false, 'message' => '历史数据为空']);
         
@@ -456,7 +456,7 @@ class SsqController extends Controller
             (int)$row->code1, (int)$row->code2, (int)$row->code3, 
             (int)$row->code4, (int)$row->code5, (int)$row->code6
         ];
-        sort($currentReds); // 排序以便进行连号和子集比对
+        sort($currentReds); 
 
         $lastReds = [
             (int)$latestHistory->front1, (int)$latestHistory->front2, (int)$latestHistory->front3, 
@@ -485,8 +485,7 @@ class SsqController extends Controller
         $currentDupCount = count($currentDuplicateWithLast);
         $lastSelfDupCount = (int)$latestHistory->duplicate_count;
 
-        // --- 核心逻辑 C：【新增】连号复刻拦截 (针对上期出现的连号组) ---
-        // 1. 提取上期的连号组
+        // --- 核心逻辑 C：连号复刻拦截 ---
         $lastConsecutiveSets = [];
         $tempSet = [$lastReds[0]];
         for ($i = 1; $i < count($lastReds); $i++) {
@@ -499,14 +498,12 @@ class SsqController extends Controller
         }
         if (count($tempSet) >= 2) $lastConsecutiveSets[] = $tempSet;
 
-        // 2. 检查当前组合是否包含相同的连号组
         foreach ($lastConsecutiveSets as $set) {
-            // 如果上期的连号组是当前红球的子集
             if (count(array_intersect($currentReds, $set)) === count($set)) {
                 $baseScore -= 60;
                 $setStr = implode('-', $set);
                 $reasons[] = "连号复刻警告：包含了与上期完全相同的连号组({$setStr})，此类形态连开概率极低。";
-                break; // 命中一次即扣分
+                break; 
             }
         }
 
@@ -521,6 +518,20 @@ class SsqController extends Controller
             }
         }
 
+        // --- 核心逻辑 E：【新增】历史重号空缺检测 ---
+        $historyDups = $recentHistory->pluck('duplicate_count')->toArray();
+        if (count($historyDups) >= 2 && (int)$historyDups[0] === 0 && (int)$historyDups[1] === 0) {
+            // 先处理 3 期都是 0 的情况
+            if (count($historyDups) >= 3 && (int)$historyDups[2] === 0) {
+                $baseScore -= 50;
+                $reasons[] = "重号极端空缺：历史近3期重号个数均为0，本期重号喷发概率极高，当前组合需慎重。";
+            } else {
+                // 仅 2 期是 0
+                $baseScore -= 20;
+                $reasons[] = "重号空缺警告：近2期均未出现重号，重号反弹迹象明显。";
+            }
+        }
+
         // --- 3. 最高优先级：特殊全形态拦截 ---
         if ($row->odd_count == 6) {
             return response()->json(['success' => true, 'data' => ['weight' => 60, 'reason' => "全奇数形态，今年至今未出，可适当关注。"]]);
@@ -531,16 +542,20 @@ class SsqController extends Controller
 
         // --- 4. 核心扣分逻辑 ---
 
-        // [逻辑 1] 重号拦截
-        $isExtremeDup = ($currentDupCount >= 4);
-        $isInertiaDup = ($lastSelfDupCount > 2 && $currentDupCount > 2);
-        if ($isExtremeDup || $isInertiaDup) {
-            $baseScore -= 50;
-            $numsStr = implode(',', $currentDuplicateWithLast);
-            if ($isExtremeDup) {
-                $reasons[] = "极端重号风险：与上期重复高达 {$currentDupCount} 个号码({$numsStr})。";
-            } else {
-                $reasons[] = "重号惯性拦截：上期已出 {$lastSelfDupCount} 个重号，本组合重复数({$currentDupCount})过多({$numsStr})。";
+        // [逻辑 1] 重号拦截与提醒
+        if ($currentDupCount === 0) {
+            $reasons[] = "下期遇重号概率提升，该组合未现重号。";
+        } else {
+            $isExtremeDup = ($currentDupCount >= 4);
+            $isInertiaDup = ($lastSelfDupCount > 2 && $currentDupCount > 2);
+            if ($isExtremeDup || $isInertiaDup) {
+                $baseScore -= 50;
+                $numsStr = implode(',', $currentDuplicateWithLast);
+                if ($isExtremeDup) {
+                    $reasons[] = "极端重号风险：与上期重复高达 {$currentDupCount} 个号码({$numsStr})。";
+                } else {
+                    $reasons[] = "重号惯性拦截：上期已出 {$lastSelfDupCount} 个重号，本组合重复数({$currentDupCount})过多({$numsStr})。";
+                }
             }
         }
 
