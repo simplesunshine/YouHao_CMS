@@ -439,11 +439,12 @@ class SsqController extends Controller
     public function score(Request $request)
     {
         $id = $request->input('id');
-        if (!$id) return response()->json(['success' => false, 'message' => '参数缺失']);
-
-        // 1. 获取机选数据
-        $row = DB::table('basic_ssq')->where('id', $id)->first();
-        if (!$row) return response()->json(['success' => false, 'message' => '未找到该号码']);
+        if ($id) {
+            $row = DB::table('basic_ssq')->where('id', $id)->first();
+        } else {
+            $frontNumbers = $request->input('front_numbers');
+            $row = DB::table('basic_ssq')->where('front', $frontNumbers)->first();
+        }
 
         // 2. 获取历史数据 (增加到最近 6 期以确保逻辑覆盖)
         $recentHistory = DB::table('ssq_lotto_history')->orderBy('id', 'desc')->limit(6)->get();

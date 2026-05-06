@@ -325,11 +325,12 @@ class DltController extends Controller
     public function score(Request $request)
     {
         $id = $request->input('id');
-        if (!$id) return response()->json(['success' => false, 'message' => '参数缺失']);
-
-        // 1. 获取机选数据
-        $row = DB::table('basic_dlt')->where('id', $id)->first();
-        if (!$row) return response()->json(['success' => false, 'message' => '未找到该号码']);
+        if ($id) {
+            $row = DB::table('basic_dlt')->where('id', $id)->first();
+        } else {
+            $frontNumbers = $request->input('front_numbers');
+            $row = DB::table('basic_dlt')->where('front', $frontNumbers)->first();
+        }
 
         // 2. 获取历史数据 (最近 10 期)
         $recentHistory = DB::table('dlt_lotto_history')->orderBy('id', 'desc')->limit(10)->get();

@@ -85,6 +85,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dlt/fushi/normal_fushi', [DltFushiController::class, 'normalFushi']);
     Route::get('/dlt/fushi/dantuo_fushi', [DltFushiController::class, 'dantuoFushi']);
 
-    // 自选号码查询 (既然选号逻辑需登录，查询也放进来)
+    // 自选号码查询和评分
     Route::post('lotto/analysis', [LottoAnalysisController::class, 'index']);
+    Route::post('lotto/score', [LottoAnalysisController::class, 'score']);
+
 });

@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\DltController;
+use App\Http\Controllers\Api\SsqController;
 use Illuminate\Support\Facades\DB;
 
 class LottoAnalysisController extends Controller
@@ -38,7 +40,6 @@ class LottoAnalysisController extends Controller
         $posAppear = $this->calculatePositionFrequency($historyTable, $nums, $needCount);
 
         $features = [
-            'weight'     => $exists ? ($recRecord->weight ?? 0) : 0,
             'odd_even'   => $oddCount . ':' . ($needCount - $oddCount),
             'sum'        => array_sum($nums),
             'zone_ratio' => $this->calculateZoneRatio($nums, $type),
@@ -50,10 +51,8 @@ class LottoAnalysisController extends Controller
         $historyCollisions = $this->getHistoryCollisions($historyTable, $nums, $needCount, $isSsq);
 
         return response()->json([
-            'exists'   => $exists,
             'features' => $features,
             'history'  => $historyCollisions,
-            'message'  => $exists ? '匹配成功' : '该号码未在演算库中'
         ]);
     }
 
@@ -160,5 +159,20 @@ class LottoAnalysisController extends Controller
                 'created_at'    => now(),
             ]);
         } catch (\Exception $e) { }
+    }
+
+    /**
+     * 深度评分分发入口
+     */
+    public function score(Request $request)
+    {
+        $type = $request->input('type', 'ssq');
+        if ($type === 'ssq') {
+            $SsqController = new SsqController();
+            return $SsqController->score($request);
+        } else {
+            $DltController = new DltController();
+            return $DltController->score($request);
+        }
     }
 }
