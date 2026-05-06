@@ -8,6 +8,7 @@ use App\Models\BasicDlt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use App\Services\DltLotteryFeatureService;
+use App\Models\LotterySetting;
 
 class DltController extends Controller
 {
@@ -133,15 +134,12 @@ class DltController extends Controller
         // 4. 构建返回数据
         $randomData = $results->map(fn($row) => $service->buildRow($row));
 
+        //或取当前期号
+        $issue = $this->currentIssue();
+
         // 5. ⭐ 自动保存到永久记录表 (包含期号修复逻辑)
         $records = [];
         foreach ($results as $row) {
-            $issue = $row->issue;
-            // 修复期号：如果小于 7 位（如 26001），则补齐为 2026001
-            if (strlen($issue) < 7) {
-                $issue = '20' . $issue;
-            }
-
             $records[] = [
                 'user_id'       => $user->id,
                 'lottery_type'  => 'dlt',
@@ -153,6 +151,7 @@ class DltController extends Controller
                 'red_dan'       => '',
                 'kill_numbers'  => '',
                 'is_win'        => 0,
+                'ip'            => $ip,
                 'created_at'    => now(),
                 'updated_at'    => now(),
             ];
@@ -214,6 +213,21 @@ class DltController extends Controller
                 'back'  => array_map($format, $back),
             ]
         ]);
+    }
+
+    /**
+     * 获取当前期号（缓存5分钟）
+     */
+    private function currentIssue()
+    {
+        return \Illuminate\Support\Facades\Cache::remember('dlt_current_issue_for_pick', 300, function () {
+            // 获取最新一期
+            $issue = LotterySetting::where('type', 2)
+                ->orderByDesc('issue')
+                ->first();
+
+            return $issue ? $issue->issue : null;
+        });
     }
 
     /**

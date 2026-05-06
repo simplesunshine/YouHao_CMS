@@ -8,6 +8,7 @@ use App\Models\LottoSsqRecommendation;
 use App\Models\BasicSsq;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use App\Models\LotterySetting;
 
 class SsqController extends Controller
 {
@@ -149,10 +150,9 @@ class SsqController extends Controller
             return response()->json(['success' => false, 'message' => '没有符合条件的号码或数据未更新']);
         }
 
+        $issue = $this->currentIssue();
         // 4. 构建前端返回数据 (修复期号显示)
-        $randomData = $results->map(function ($row) use ($last, $posCounts, $hotPairs, $type) {
-            $issue = $row->issue;
-            if (strlen($issue) < 7) $issue = '20' . $issue;
+        $randomData = $results->map(function ($row) use ($last, $posCounts, $hotPairs, $type, $issue) {
 
             $base = [
                 'id' => $row->id,
@@ -170,11 +170,6 @@ class SsqController extends Controller
         // 5. 自动同步到【统一记录表 user_lotto_records】 (含期号修复)
         $records = [];
         foreach ($results as $row) {
-            $issue = $row->issue;
-            if (strlen($issue) < 7) {
-                $issue = '20' . $issue;
-            }
-
             $records[] = [
                 'user_id'       => $user->id,
                 'lottery_type'  => 'ssq',
@@ -214,6 +209,21 @@ class SsqController extends Controller
     }
 
     /**
+     * 获取当前期号（缓存5分钟）
+     */
+    private function currentIssue()
+    {
+        return \Illuminate\Support\Facades\Cache::remember('ssq_current_issue_for_pick', 300, function () {
+            // 获取最新一期
+            $issue = LotterySetting::where('type', 1)
+                ->orderByDesc('issue')
+                ->first();
+
+            return $issue ? $issue->issue : null;
+        });
+    }
+
+    /**
      * 获取上期开奖 (带期号修复)
      */
     public function lastIssue(Request $request)
@@ -244,23 +254,6 @@ class SsqController extends Controller
                     'continue_count' => $last->continue_count ?? 0
                 ]
             ]
-        ]);
-    }
-
-    // --- 辅助方法与原有逻辑保持一致 ---
-
-    public function download(Request $request)
-    {
-        $ip = $request->ip();
-        $list = BasicSsq::where('ip', $ip)->orderBy('id')->get();
-        if ($list->isEmpty()) return response()->json(['success' => false, 'message' => '暂无可下载数据'], 404);
-        $content = '';
-        foreach ($list as $i => $row) {
-            $content .= sprintf("%02d. 红球:%s | 蓝球:%s\n", $i + 1, $row->front_numbers, $row->back_numbers);
-        }
-        return response($content, 200, [
-            'Content-Type' => 'text/plain; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="ssq.txt"'
         ]);
     }
 
