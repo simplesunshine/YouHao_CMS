@@ -18,7 +18,7 @@ class SsqLottoHistoryController extends AdminController
         $grid->column('issue', '期号')->sortable();
 
         // 红球显示
-        $grid->column('front_numbers', '红球')->display(function ($val) {
+        $grid->column('front', '红球')->display(function ($val) {
             if (!$val) return '';
             $nums = explode(',', $val);
             $html = '';
@@ -30,7 +30,7 @@ class SsqLottoHistoryController extends AdminController
         });
 
         // 蓝球显示
-        $grid->column('back_numbers', '蓝球')->display(function ($val) {
+        $grid->column('back', '蓝球')->display(function ($val) {
             if (!$val) return '';
             $val = str_pad($val, 2, '0', STR_PAD_LEFT);
             return "<span style='display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background-color:#409EFF;color:#fff;font-size:13px;font-weight:bold;'>{$val}</span>";
@@ -53,14 +53,14 @@ class SsqLottoHistoryController extends AdminController
 
             // --- 新增：编辑时回填数据 ---
             $form->editing(function (Form $form) {
-                $frontStr = $form->model()->front_numbers;
+                $frontStr = $form->model()->front;
                 if ($frontStr) {
                     $nums = explode(',', $frontStr);
                     foreach ($nums as $index => $num) {
                         $form->input('front' . ($index + 1), $num);
                     }
                 }
-                $form->input('back', $form->model()->back_numbers);
+                $form->input('back', $form->model()->back);
             });
 
             $form->display('id', 'ID');
@@ -77,8 +77,7 @@ class SsqLottoHistoryController extends AdminController
             $form->number('back', '蓝球')->min(1)->max(16)->required();
 
             // 隐藏计算字段
-            $form->hidden('front_numbers');
-            $form->hidden('back_numbers');
+            $form->hidden('front');
             $form->hidden('sum');
             $form->hidden('span');
             $form->hidden('zone_ratio');
@@ -100,8 +99,8 @@ class SsqLottoHistoryController extends AdminController
                     $form->input('front' . ($index + 1), $num);
                 }
 
-                $form->input('front_numbers', implode(',', $fronts));
-                $form->input('back_numbers', (string)(int)$form->back);
+                $form->input('front', implode(',', $fronts));
+                $form->input('back', (string)(int)$form->back);
                 $form->input('sum', array_sum($fronts));
                 $form->input('span', max($fronts) - min($fronts));
 
@@ -131,7 +130,7 @@ class SsqLottoHistoryController extends AdminController
                 $prevData = DB::table('ssq_lotto_history')->where('id', '<', $currentId)->orderBy('id', 'desc')->first();
                 
                 $updatePayload = [];
-                $currentNums = explode(',', $data->front_numbers);
+                $currentNums = explode(',', $data->front);
 
                 // --- A. 连续性与重号统计 ---
                 if ($prevData) {
@@ -139,14 +138,14 @@ class SsqLottoHistoryController extends AdminController
                     $updatePayload['continuous_odd_count'] = ($data->odd_count === $prevData->odd_count) ? ($prevData->continuous_odd_count + 1) : 1;
                     
                     $getBig = fn($txt) => count(array_filter(explode(',', $txt), fn($v) => (int)$v >= 17));
-                    $updatePayload['continuous_big_count'] = ($getBig($data->front_numbers) === $getBig($prevData->front_numbers)) ? ($prevData->continuous_big_count + 1) : 1;
+                    $updatePayload['continuous_big_count'] = ($getBig($data->front) === $getBig($prevData->front)) ? ($prevData->continuous_big_count + 1) : 1;
                     
                     $updatePayload['continuous_sum_tail'] = ((int)$data->sum % 10 === (int)$prevData->sum % 10) ? ($prevData->continuous_sum_tail + 1) : 1;
                     $getRange = fn($s) => floor((int)$s / 10);
                     $updatePayload['continuous_sum_range'] = ($getRange($data->sum) === $getRange($prevData->sum)) ? ($prevData->continuous_sum_range + 1) : 1;
                     $updatePayload['continuous_span_count'] = ($data->span === $prevData->span) ? ($prevData->continuous_span_count + 1) : 1;
                     
-                    $prevFronts = explode(',', $prevData->front_numbers);
+                    $prevFronts = explode(',', $prevData->front);
                     $intersect = array_intersect($currentNums, $prevFronts);
                     $updatePayload['duplicate_count'] = count($intersect);
                     $updatePayload['duplicate_nums'] = implode(',', $intersect);
