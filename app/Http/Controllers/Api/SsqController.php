@@ -363,8 +363,8 @@ class SsqController extends Controller
 
         // 3. 遍历历史数据进行统计
         foreach ($history as $row) {
-            $reds = $parseNumbers($row->front_numbers);
-            $blues = $parseNumbers($row->back_numbers);
+            $reds = $parseNumbers($row->front);
+            $blues = $parseNumbers($row->back);
 
             foreach ($reds as $num) {
                 if (isset($redStats[$num])) $redStats[$num]++;
