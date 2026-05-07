@@ -54,8 +54,8 @@ class LottoRecordController extends Controller
 
             if (isset($openResults[$item->issue])) {
                 $opened = $openResults[$item->issue];
-                $openedFront = $parseNumbers($opened->front_numbers);
-                $openedBack = $parseNumbers($opened->back_numbers);
+                $openedFront = $parseNumbers($opened->front);
+                $openedBack = $parseNumbers($opened->back);
 
                 // 计算命中
                 $hit_front = array_values(array_intersect($allUserReds, $openedFront));
