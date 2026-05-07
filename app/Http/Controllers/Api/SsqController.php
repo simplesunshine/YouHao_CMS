@@ -246,8 +246,8 @@ class SsqController extends Controller
             'success' => true,
             'data' => [
                 'issue'         => $issue,
-                'front_numbers' => $last->front_numbers,
-                'back_numbers'  => $last->back_numbers,
+                'front_numbers' => $last->front,
+                'back_numbers'  => $last->back,
                 'features' => [
                     'cold_numbers'   => $maxMissNums,
                     'pos_miss_nums'  => $posMissNums,
