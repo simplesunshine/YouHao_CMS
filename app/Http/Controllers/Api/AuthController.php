@@ -42,6 +42,12 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => '邮箱或密码错误'], 401);
         }
 
+        // --- 新增：保存登录时间和IP ---
+        $user->update([
+            'last_login_at' => now(), // Laravel 会自动处理时间格式
+            'last_login_ip' => $request->ip(), // 获取客户端真实 IP
+        ]);
+
         // 生成 Token (使用 Sanctum)
         $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -52,6 +58,7 @@ class AuthController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'profile_picture' => $user->profile_picture,
+                'last_login_at' => $user->last_login_at, // 返回给前端也可以
             ],
             'token' => $token
         ]);
@@ -59,13 +66,12 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        // 获取当前通过 Token 认证的用户
+        // 获取当前认证用户
         $user = $request->user();
 
         if ($user) {
-            // 将数据库中的 api_token 置空，让该 Token 立即失效
-            $user->api_token = null;
-            $user->save();
+            // 注意：如果你使用 Sanctum，应该删除当前 Token，而不是操作 api_token 字段
+            $user->currentAccessToken()->delete();
 
             return response()->json([
                 'success' => true,

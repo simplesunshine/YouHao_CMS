@@ -26,4 +26,7 @@ Route::group([
     // 具体的“大乐透/双色球”和“单式/复式”区分，通过菜单路径传参实现
     $router->resource('lotto-records/records', 'UserLottoRecordController');
 
+    //用户列表
+    $router->resource('users', 'UserController');
+
 });
