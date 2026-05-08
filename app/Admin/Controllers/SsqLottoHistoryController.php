@@ -12,46 +12,70 @@ class SsqLottoHistoryController extends AdminController
 {
     protected function grid()
     {
-        $grid = new Grid(new SsqLottoHistory());
+        return Grid::make(new SsqLottoHistory(), function (Grid $grid) {
+            $grid->column('id', 'ID')->sortable();
+            $grid->column('issue', '期号')->sortable()->label('default');
 
-        $grid->column('id', 'ID')->sortable();
-        $grid->column('issue', '期号')->sortable();
+            // --- 美化红球展示 ---
+            $grid->column('front', '红球')->display(function ($val) {
+                if (!$val) return '';
+                $nums = explode(',', $val);
+                $html = '<div style="display:flex; flex-wrap:nowrap;">';
+                foreach ($nums as $n) {
+                    $n = str_pad($n, 2, '0', STR_PAD_LEFT);
+                    $html .= "<span style='
+                        display:inline-flex;
+                        align-items:center;
+                        justify-content:center;
+                        width:30px;
+                        height:30px;
+                        border-radius:50%;
+                        background: radial-gradient(circle at 30% 30%, #ff7875, #ff4d4f);
+                        color:#fff;
+                        font-size:14px;
+                        font-weight:bold;
+                        margin-right:6px;
+                        box-shadow: 0 2px 4px rgba(245, 108, 108, 0.3);
+                        border: 1px solid #ff4d4f;
+                    '>{$n}</span>";
+                }
+                $html .= '</div>';
+                return $html;
+            });
 
-        // 红球显示
-        $grid->column('front', '红球')->display(function ($val) {
-            if (!$val) return '';
-            $nums = explode(',', $val);
-            $html = '';
-            foreach ($nums as $n) {
-                $n = str_pad($n, 2, '0', STR_PAD_LEFT);
-                $html .= "<span style='display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background-color:#F56C6C;color:#fff;font-size:13px;font-weight:bold;margin-right:4px;'>{$n}</span>";
-            }
-            return $html;
+            // --- 美化蓝球展示 ---
+            $grid->column('back', '蓝球')->display(function ($val) {
+                if (!$val) return '';
+                $val = str_pad($val, 2, '0', STR_PAD_LEFT);
+                return "<span style='
+                    display:inline-flex;
+                    align-items:center;
+                    justify-content:center;
+                    width:30px;
+                    height:30px;
+                    border-radius:50%;
+                    background: radial-gradient(circle at 30% 30%, #69c0ff, #1890ff);
+                    color:#fff;
+                    font-size:14px;
+                    font-weight:bold;
+                    box-shadow: 0 2px 4px rgba(64, 158, 255, 0.3);
+                    border: 1px solid #1890ff;
+                '>{$val}</span>";
+            });
+
+            $grid->model()->orderByDesc('id');
+
+            $grid->filter(function (Grid\Filter $filter) {
+                $filter->equal('issue', '期号');
+            });
         });
-
-        // 蓝球显示
-        $grid->column('back', '蓝球')->display(function ($val) {
-            if (!$val) return '';
-            $val = str_pad($val, 2, '0', STR_PAD_LEFT);
-            return "<span style='display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background-color:#409EFF;color:#fff;font-size:13px;font-weight:bold;'>{$val}</span>";
-        });
-
-        // 按 ID 排序确保时序准确
-        $grid->model()->orderByDesc('id');
-
-        $grid->filter(function (Grid\Filter $filter) {
-            $filter->equal('issue', '期号');
-            //$filter->between('open_date', '开奖日期')->date();
-        });
-
-        return $grid;
     }
 
     public function form()
     {
         return Form::make(new SsqLottoHistory(), function (Form $form) {
-
-            // --- 新增：编辑时回填数据 ---
+            
+            // --- 编辑回填逻辑 (保留原逻辑) ---
             $form->editing(function (Form $form) {
                 $frontStr = $form->model()->front;
                 if ($frontStr) {
@@ -63,20 +87,27 @@ class SsqLottoHistoryController extends AdminController
                 $form->input('back', $form->model()->back);
             });
 
+            // --- 表单布局美化 ---
             $form->display('id', 'ID');
-            $form->text('issue', '期号')->required();
-            //$form->date('open_date', '开奖日期')->default(date('Y-m-d'));
+            $form->text('issue', '期号')->required()->width(4);
 
-            // 表单输入（保持你原来的样式）
-            $form->number('front1', '红球1')->min(1)->max(33)->required();
-            $form->number('front2', '红球2')->min(1)->max(33)->required();
-            $form->number('front3', '红球3')->min(1)->max(33)->required();
-            $form->number('front4', '红球4')->min(1)->max(33)->required();
-            $form->number('front5', '红球5')->min(1)->max(33)->required();
-            $form->number('front6', '红球6')->min(1)->max(33)->required();
-            $form->number('back', '蓝球')->min(1)->max(16)->required();
+            // 使用 row 布局让球号横向排开
+            $form->block('中奖号码录入', function (Form\BlockForm $form) {
+                $form->row(function (Form\Row $row) {
+                    $row->width(1)->html('<div style="text-align:center; padding-top:10px;"><span class="label" style="background:#ff4d4f">红球</span></div>');
+                    $row->width(1)->number('front1', ' ')->min(1)->max(33)->required();
+                    $row->width(1)->number('front2', ' ')->min(1)->max(33)->required();
+                    $row->width(1)->number('front3', ' ')->min(1)->max(33)->required();
+                    $row->width(1)->number('front4', ' ')->min(1)->max(33)->required();
+                    $row->width(1)->number('front5', ' ')->min(1)->max(33)->required();
+                    $row->width(1)->number('front6', ' ')->min(1)->max(33)->required();
+                    
+                    $row->width(1)->html('<div style="text-align:center; padding-top:10px;"><span class="label" style="background:#1890ff">蓝球</span></div>');
+                    $row->width(1)->number('back', ' ')->min(1)->max(16)->required();
+                });
+            });
 
-            // 隐藏计算字段
+            // 隐藏计算字段 (保留)
             $form->hidden('front');
             $form->hidden('sum');
             $form->hidden('span');
@@ -85,16 +116,15 @@ class SsqLottoHistoryController extends AdminController
             $form->hidden('even_count');
 
             // --------------------------------------------------
-            // 1. 保存前：处理基础字段
+            // 1. 保存前逻辑 (完全保留你的逻辑)
             // --------------------------------------------------
             $form->saving(function (Form $form) {
                 $fronts = [
                     (int)$form->front1, (int)$form->front2, (int)$form->front3,
                     (int)$form->front4, (int)$form->front5, (int)$form->front6
                 ];
-                sort($fronts); // 必须排序
+                sort($fronts); 
 
-                // 将排序后的值回写到单个字段，保证 front1 < front2 ...
                 foreach ($fronts as $index => $num) {
                     $form->input('front' . ($index + 1), $num);
                 }
@@ -110,7 +140,6 @@ class SsqLottoHistoryController extends AdminController
                     if ($n <= 11) $zones[0]++;
                     elseif ($n <= 22) $zones[1]++;
                     else $zones[2]++;
-                    
                     if ($n % 2 === 1) $odd++;
                 }
                 $form->input('zone_ratio', implode(':', $zones));
@@ -119,7 +148,7 @@ class SsqLottoHistoryController extends AdminController
             });
 
             // --------------------------------------------------
-            // 2. 保存后：处理历史遗漏与连续性统计
+            // 2. 保存后逻辑 (完全保留你的逻辑)
             // --------------------------------------------------
             $form->saved(function (Form $form) {
                 $currentId = $form->getKey() ?: $form->model()->id;
@@ -132,7 +161,6 @@ class SsqLottoHistoryController extends AdminController
                 $updatePayload = [];
                 $currentNums = explode(',', $data->front);
 
-                // --- A. 连续性与重号统计 ---
                 if ($prevData) {
                     $updatePayload['continuous_zone_count'] = ($data->zone_ratio === $prevData->zone_ratio) ? ($prevData->continuous_zone_count + 1) : 1;
                     $updatePayload['continuous_odd_count'] = ($data->odd_count === $prevData->odd_count) ? ($prevData->continuous_odd_count + 1) : 1;
@@ -157,13 +185,11 @@ class SsqLottoHistoryController extends AdminController
                     ]);
                 }
 
-                // --- B. 历史遗漏统计 ---
                 $allIds = DB::table('ssq_lotto_history')->orderBy('id', 'asc')->pluck('id')->toArray();
                 $idIndexMap = array_flip($allIds);
                 $currentIndex = $idIndexMap[$currentId] + 1;
 
                 $currentCold = []; $ballOmission = [];
-
                 for ($n = 1; $n <= 33; $n++) {
                     $queryHelper = function ($query) use ($n) {
                         $query->where(function($q) use ($n) {
@@ -172,10 +198,8 @@ class SsqLottoHistoryController extends AdminController
                               ->orWhere('front5', $n)->orWhere('front6', $n);
                         });
                     };
-
                     $lastBeforeId = DB::table('ssq_lotto_history')->where('id', '<', $currentId)->where($queryHelper)->orderByDesc('id')->value('id');
                     $currentCold[$n] = $lastBeforeId ? ($currentIndex - ($idIndexMap[$lastBeforeId] + 1)) : $currentIndex;
-
                     $lastIncludeId = DB::table('ssq_lotto_history')->where('id', '<=', $currentId)->where($queryHelper)->orderByDesc('id')->value('id');
                     $ballOmission[$n] = $lastIncludeId ? ($currentIndex - ($idIndexMap[$lastIncludeId] + 1)) : $currentIndex;
                 }
