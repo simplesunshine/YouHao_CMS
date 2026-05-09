@@ -427,7 +427,8 @@ class DltController extends Controller
             $allRecentFronts = array_merge($allRecentFronts, [(int)$h->front1, (int)$h->front2, (int)$h->front3, (int)$h->front4, (int)$h->front5]);
         }
         $counts = array_count_values($allRecentFronts);
-        $hotNumbers = array_keys(array_filter($counts, fn($v) => $v >= 3));
+        $hotNumbers = array_keys(array_filter($counts, fn($v) => $v >= 2));
+      
         $hotIntersect = array_intersect($currentFronts, $hotNumbers);
 
         if (count($hotIntersect) === 0) {
