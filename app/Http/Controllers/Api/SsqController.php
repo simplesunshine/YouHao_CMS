@@ -397,7 +397,7 @@ class SsqController extends Controller
         ]);
     }
 
-    private function getHotPairs($minCount = 6)
+    public function getHotPairs($minCount = 6)
     {
         return Cache::remember("ssq_hot_pairs_100_{$minCount}", 3600, function () use ($minCount) {
             $pairStats = $this->getPairStatsData();

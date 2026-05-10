@@ -44,7 +44,10 @@ Route::get('/dlt-biaoji-history', [OpenResultController::class, 'dltBiaojiHistor
 
 Route::get('/ssq/lastIssue', [SsqController::class, 'lastIssue']);
 Route::get('/ssq/number-distribution', [SsqController::class, 'numberDistribution']);
+// 获取两码组合
 Route::get('/ssq/pair-stats', [SsqController::class, 'pairStats']);
+// 获取高频两码组合
+Route::get('/ssq/hot-pairs', [SsqController::class, 'getHotPairs']);
 
 Route::get('/dlt/lastIssue', [DltController::class, 'lastIssue']);
 Route::get('/dlt/number-distribution', [DltController::class, 'numberDistribution']);
