@@ -94,6 +94,10 @@ class SsqFushiController extends Controller
         $tuoCount = intval($request->input('red_count', 6));
         $blueCount = intval($request->input('blue_count', 1));
         $danCount = intval($request->input('dan_count', 1));
+        
+        // 新增：获取前端传来的推荐胆码组合
+        $preferDanStr = $request->input('prefer_dan', '');
+        $preferDans = !empty($preferDanStr) ? explode(',', $preferDanStr) : [];
 
         if ($danCount < 1 || $danCount > 5 || $tuoCount < 6 || $blueCount < 1) {
             return response()->json(['code' => 400, 'msg' => '参数不合法']);
@@ -105,7 +109,26 @@ class SsqFushiController extends Controller
         $try = 0;
         while ($try < 100) {
             $try++;
-            $danNums = collect(range(1, 33))->shuffle()->take($danCount)->sort()->values()->toArray();
+            
+            // --- 修改逻辑：胆码生成 ---
+            if (!empty($preferDans)) {
+                // 如果有推荐号，使用推荐号作为胆码。如果推荐号数量不足 danCount，随机补齐。
+                $baseDans = array_map('intval', $preferDans);
+                if (count($baseDans) < $danCount) {
+                    $extraPool = array_diff(range(1, 33), $baseDans);
+                    $extraDans = collect($extraPool)->shuffle()->take($danCount - count($baseDans))->toArray();
+                    $danNums = array_merge($baseDans, $extraDans);
+                } else {
+                    // 如果推荐号多于设定的danCount，则截取
+                    $danNums = array_slice($baseDans, 0, $danCount);
+                }
+            } else {
+                // 原有随机生成逻辑
+                $danNums = collect(range(1, 33))->shuffle()->take($danCount)->toArray();
+            }
+            sort($danNums);
+            // ------------------------
+
             $tuoPool = array_diff(range(1, 33), $danNums);
             $tuoNums = collect($tuoPool)->shuffle()->take($tuoCount)->sort()->values()->toArray();
 
@@ -113,13 +136,14 @@ class SsqFushiController extends Controller
             sort($reds);
             $redOmits = array_map(fn($n) => $redOmit[$n] ?? 0, $reds);
 
+            // 保持原有过滤条件：最大遗漏 < 6 或 最小遗漏 > 1 或 跨度 < 11 则重试
             if (max($redOmits) < 6 || min($redOmits) > 1 || (max($reds) - min($reds)) < 11) continue;
 
             $blues = collect(range(1, 16))->shuffle()->take($blueCount)->sort()->values()->toArray();
 
             DB::table('user_lotto_records')->insert([
                 'user_id'      => $user->id,
-                'lottery_type' => 'ssq', // <--- 修复点
+                'lottery_type' => 'ssq',
                 'is_fushi'     => 1,
                 'issue'        => $request->input('issue'),
                 'mode'         => 'dantuo_fushi',
@@ -134,11 +158,15 @@ class SsqFushiController extends Controller
 
             return response()->json([
                 'code' => 200,
-                'data' => ['dan' => $danNums, 'tuo' => $tuoNums, 'blue' => $blues]
+                'data' => [
+                    'dan' => $danNums, 
+                    'tuo' => $tuoNums, 
+                    'blue' => $blues
+                ]
             ]);
         }
 
-        return response()->json(['code' => 500, 'msg' => '生成失败']);
+        return response()->json(['code' => 500, 'msg' => '生成失败，请重试']);
     }
 
     /**
