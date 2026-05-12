@@ -318,9 +318,9 @@ class DltController extends Controller
 
 
     
-        /**
+    /**
      * 大乐透深度演算评分报告
-     * 整合：高频重号压制、断区趋势预警、和尾连开拦截、和值区间停留拦截、形态拦截
+     * 整合：高频重号压制、断区趋势预警、和尾连开拦截、和值区间停留拦截、形态拦截、前三位奇偶形态拦截
      */
     public function score(Request $request)
     {
@@ -336,7 +336,8 @@ class DltController extends Controller
         $recentHistory = DB::table('dlt_lotto_history')->orderBy('id', 'desc')->limit(10)->get();
         if ($recentHistory->isEmpty()) return response()->json(['success' => false, 'message' => '历史数据为空']);
         
-        $latestHistory = $recentHistory->first();
+        $latestHistory = $recentHistory->get(0); // 上期
+        $preHistory = $recentHistory->get(1);    // 上上期
 
         // --- 基础数据准备 ---
         $currentFronts = [(int)$row->code1, (int)$row->code2, (int)$row->code3, (int)$row->code4, (int)$row->code5];
@@ -362,11 +363,10 @@ class DltController extends Controller
             $reasons[] = "重号偏多：与上期重复 {$currentDupCount} 个号码。";
         }
 
-        // --- 核心逻辑 B：和值区间停留拦截 (新增) ---
-        // 假设和值区间按 10 分段计算 (floor(sum/10))
+        // --- 核心逻辑 B：和值区间停留拦截 ---
         $currentSumRange = floor((int)$row->sum / 10);
         $lastSumRange = floor((int)$latestHistory->sum / 10);
-        $lastSumRangeCount = (int)$latestHistory->continuous_sum_range; // 数据库记录的连续区间计数
+        $lastSumRangeCount = (int)$latestHistory->continuous_sum_range; 
 
         if ($currentSumRange == $lastSumRange && $lastSumRangeCount >= 2) {
             $baseScore -= 30;
@@ -397,6 +397,31 @@ class DltController extends Controller
         if ($currentSumTail === $lastSumTail && $lastSumTailCount >= 2) {
             $baseScore -= 50;
             $reasons[] = "和值个位（{$currentSumTail}）已连开 2 期，执行拦截。";
+        }
+
+        // --- 【新增】核心逻辑 G：前三位奇偶形态拦截 ---
+        $getCurrentParityStr = function($c1, $c2, $c3) {
+            return ($c1 % 2 === 0 ? '偶' : '奇') . ($c2 % 2 === 0 ? '偶' : '奇') . ($c3 % 2 === 0 ? '偶' : '奇');
+        };
+
+        $currentP = $getCurrentParityStr($currentFronts[0], $currentFronts[1], $currentFronts[2]);
+        $lastP = $getCurrentParityStr($latestHistory->front1, $latestHistory->front2, $latestHistory->front3);
+
+        if ($currentP === $lastP) {
+            // 判断是否三连
+            if ($preHistory) {
+                $preP = $getCurrentParityStr($preHistory->front1, $preHistory->front2, $preHistory->front3);
+                if ($currentP === $preP) {
+                    $baseScore -= 90;
+                    $reasons[] = "前三位奇偶形态({$currentP})达成三连，风险极大。";
+                } else {
+                    $baseScore -= 20;
+                    $reasons[] = "前三位奇偶形态({$currentP})与上期雷同，降低权重。";
+                }
+            } else {
+                $baseScore -= 20;
+                $reasons[] = "前三位奇偶形态({$currentP})与上期雷同。";
+            }
         }
 
         // --- 核心逻辑 E：连号复刻拦截 ---

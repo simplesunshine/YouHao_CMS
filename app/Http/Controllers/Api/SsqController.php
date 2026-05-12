@@ -434,7 +434,7 @@ class SsqController extends Controller
 
     /**
      * 深度演算评分报告
-     * 整合：热号、重号、极端重号、连号复刻、形态拦截、遗漏规避、历史重号走势
+     * 整合：热号、重号、极端重号、连号复刻、形态拦截、遗漏规避、历史重号走势、前三位奇偶拦截
      */
     public function score(Request $request)
     {
@@ -446,11 +446,12 @@ class SsqController extends Controller
             $row = DB::table('basic_ssq')->where('front', $frontNumbers)->first();
         }
 
-        // 2. 获取历史数据 (增加到最近 6 期以确保逻辑覆盖)
+        // 2. 获取历史数据 (确保获取足够的数据进行比对)
         $recentHistory = DB::table('ssq_lotto_history')->orderBy('id', 'desc')->limit(6)->get();
         if ($recentHistory->isEmpty()) return response()->json(['success' => false, 'message' => '历史数据为空']);
         
-        $latestHistory = $recentHistory->first();
+        $latestHistory = $recentHistory->get(0); // 上期
+        $preHistory = $recentHistory->get(1);    // 上上期
 
         // --- 基础数据准备 ---
         $currentReds = [
@@ -519,15 +520,39 @@ class SsqController extends Controller
             }
         }
 
+        // --- 【新增】核心逻辑 F：前三位奇偶形态拦截 ---
+        // 获取当前前三位奇偶性 (1为奇，0为偶)
+        $getCurrentParity = function($c1, $c2, $c3) {
+            return ($c1 % 2 === 0 ? '偶' : '奇') . ($c2 % 2 === 0 ? '偶' : '奇') . ($c3 % 2 === 0 ? '偶' : '奇');
+        };
+
+        $currentP = $getCurrentParity($currentReds[0], $currentReds[1], $currentReds[2]);
+        $lastP = $getCurrentParity($latestHistory->front1, $latestHistory->front2, $latestHistory->front3);
+        
+        if ($currentP === $lastP) {
+            // 进一步判断是否与上上期也一致
+            if ($preHistory) {
+                $preP = $getCurrentParity($preHistory->front1, $preHistory->front2, $preHistory->front3);
+                if ($currentP === $preP) {
+                    $baseScore -= 90;
+                    $reasons[] = "前三位奇偶形态({$currentP})已连续3期重复，极其罕见。";
+                } else {
+                    $baseScore -= 20;
+                    $reasons[] = "前三位奇偶形态({$currentP})与上期雷同。";
+                }
+            } else {
+                $baseScore -= 20;
+                $reasons[] = "前三位奇偶形态({$currentP})与上期雷同。";
+            }
+        }
+
         // --- 核心逻辑 E：【新增】历史重号空缺检测 ---
         $historyDups = $recentHistory->pluck('duplicate_count')->toArray();
         if (count($historyDups) >= 2 && (int)$historyDups[0] === 0 && (int)$historyDups[1] === 0) {
-            // 先处理 3 期都是 0 的情况
             if (count($historyDups) >= 3 && (int)$historyDups[2] === 0) {
                 $baseScore -= 50;
                 $reasons[] = "重号极端空缺：历史近3期重号个数均为0，本期重号喷发概率极高，当前组合需慎重。";
             } else {
-                // 仅 2 期是 0
                 $baseScore -= 20;
                 $reasons[] = "重号空缺警告：近2期均未出现重号，重号反弹迹象明显。";
             }
