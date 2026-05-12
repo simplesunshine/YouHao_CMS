@@ -8,13 +8,12 @@ use Illuminate\Support\Facades\DB;
 class UpdateLottoStats extends Command
 {
     protected $signature = 'lotto:update-stats';
-    protected $description = '更新和值、跨度及上期重复号码等连续性指标';
+    protected $description = '更新和值、跨度、重复号码及相同和值间隔期数';
 
     public function handle()
     {
-        $this->info(">>> 任务开始：正在按 ID 顺序处理趋势连续性数据...");
+        $this->info(">>> 任务开始：正在按 ID 顺序处理数据...");
 
-        // 必须按 ID 升序，确保“上期”逻辑正确
         $records = DB::table('ssq_lotto_history')->orderBy('id', 'asc')->get();
 
         if ($records->isEmpty()) {
@@ -24,28 +23,21 @@ class UpdateLottoStats extends Command
 
         // 初始化追踪器
         $last = [
-            'zone_ratio' => null,
-            'odd_count'  => null,
-            'big_count'  => null,
-            'sum_tail'   => null,
-            'sum_range'  => null,
-            'span'       => null,
-            'reds'       => [], // 新增：用于存储上一期的红球数组
+            'zone_ratio' => null, 'odd_count' => null, 'big_count' => null,
+            'sum_tail' => null, 'sum_range' => null, 'span' => null, 'reds' => [],
         ];
 
+        // 用于记录每个“和值”上一次出现的索引位置（Index）
+        // Key 为和值，Value 为该和值在上一次循环中的 $index
+        $sumLastSeenIndex = [];
+
         $counts = [
-            'zone'      => 1,
-            'odd'       => 1,
-            'big'       => 1,
-            'sum_tail'  => 1,
-            'sum_range' => 1,
-            'span'      => 1,
+            'zone' => 1, 'odd' => 1, 'big' => 1, 'sum_tail' => 1, 'sum_range' => 1, 'span' => 1,
         ];
 
         DB::beginTransaction();
         try {
             foreach ($records as $index => $row) {
-                // 当前期红球
                 $currentReds = [
                     (int)$row->front1, (int)$row->front2, (int)$row->front3, 
                     (int)$row->front4, (int)$row->front5, (int)$row->front6
@@ -57,11 +49,19 @@ class UpdateLottoStats extends Command
                 $currentSumTail = $currentSum % 10;
                 $currentSumRange = floor($currentSum / 10);
 
-                // 计算重复号码 (核心新增)
+                // 计算相同和值间隔
+                // 逻辑：当前索引 - 上次出现该和值的索引 = 间隔期数
+                $sumInterval = 0;
+                if (isset($sumLastSeenIndex[$currentSum])) {
+                    $sumInterval = $index - $sumLastSeenIndex[$currentSum];
+                }
+                // 更新该和值最后一次出现的索引位置
+                $sumLastSeenIndex[$currentSum] = $index;
+
+                // 计算重复号码
                 $duplicateNums = [];
                 $duplicateCount = 0;
                 if (!empty($last['reds'])) {
-                    // 取交集，得出重复的号码
                     $duplicateNums = array_intersect($currentReds, $last['reds']);
                     $duplicateCount = count($duplicateNums);
                 }
@@ -95,8 +95,9 @@ class UpdateLottoStats extends Command
                         'even_count'             => 6 - $currentOdd,
                         'zone_ratio'             => $currentZoneRatio,
                         'sum'                    => $currentSum,
-                        'duplicate_count'        => $duplicateCount, // 新增：重复个数
-                        'duplicate_nums'         => implode(',', $duplicateNums), // 新增：重复的号码字符串
+                        'sum_interval'           => $sumInterval, // 新增：间隔期数
+                        'duplicate_count'        => $duplicateCount,
+                        'duplicate_nums'         => implode(',', $duplicateNums),
                         'continuous_zone_count'  => $counts['zone'],
                         'continuous_odd_count'   => $counts['odd'],
                         'continuous_big_count'   => $counts['big'],
@@ -107,20 +108,22 @@ class UpdateLottoStats extends Command
                     ]);
 
                 // --- 4. 存入当前值供下一轮对比 ---
-                $last['zone_ratio'] = $currentZoneRatio;
-                $last['odd_count']  = $currentOdd;
-                $last['big_count']  = $currentBig;
-                $last['sum_tail']   = $currentSumTail;
-                $last['sum_range']  = $currentSumRange;
-                $last['span']       = $currentSpan;
-                $last['reds']       = $currentReds; // 核心：存入当前红球，下一圈就是“上期”了
+                $last = [
+                    'zone_ratio' => $currentZoneRatio,
+                    'odd_count'  => $currentOdd,
+                    'big_count'  => $currentBig,
+                    'sum_tail'   => $currentSumTail,
+                    'sum_range'  => $currentSumRange,
+                    'span'       => $currentSpan,
+                    'reds'       => $currentReds,
+                ];
 
                 if ($index % 500 == 0 && $index > 0) {
                     $this->line("已处理 {$index} 条数据...");
                 }
             }
             DB::commit();
-            $this->info(">>> 任务成功！所有指标（含重复号码）已更新完毕。");
+            $this->info(">>> 任务成功！所有指标（含相同和值间隔）已更新完毕。");
         } catch (\Exception $e) {
             DB::rollBack();
             $this->error("执行失败：" . $e->getMessage());

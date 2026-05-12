@@ -75,6 +75,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ssq/score', [SsqController::class, 'score']); // 新加的评分详情
     Route::get('/dlt/score', [DltController::class, 'score']); // 新加的评分详情
 
+    //新加和值遗漏
+    Route::get('/ssq/sum_interval', [SsqController::class, 'sum_interval']); // 新加的评分详情
+
     
     // SSQ 复式相关
     Route::get('/ssq/fushi/normal_fushi', [SsqFushiController::class, 'normalFushi']);

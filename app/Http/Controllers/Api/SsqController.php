@@ -638,4 +638,45 @@ class SsqController extends Controller
         ]);
     }
 
+
+    /**
+     * 获取双色球历史统计特征（如和值间隔）
+     */
+    public function sum_interval(Request $request)
+    {
+        // 1. 接收参数：默认取 15 条
+        $limit = $request->query('limit', 15);
+        $order = $request->query('order', 'asc'); // 前端传 asc 代表顺序
+
+        try {
+            // 2. 从数据库获取最近的 N 期数据
+            // 注意：为了拿到“最近”的15期，我们先按 issue 倒序取，再根据需求决定是否翻转
+            $query = DB::table('ssq_lotto_history')
+                ->select(['issue', 'sum', 'sum_interval'])
+                ->orderBy('issue', 'desc')
+                ->limit($limit);
+
+            $data = $query->get();
+
+            // 3. 处理顺序逻辑
+            // 数据库取出来的是 [最新期, 上期, 上上期...]
+            // 如果前端要求顺序 [旧期 -> 新期]，我们需要 reverse
+            if ($order === 'asc') {
+                $data = $data->reverse()->values(); 
+            }
+
+            return response()->json([
+                'success' => true,
+                'data'    => $data,
+                'message' => '获取成功'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => '服务器错误：' . $e->getMessage()
+            ], 500);
+        }
+    }
+
 }
