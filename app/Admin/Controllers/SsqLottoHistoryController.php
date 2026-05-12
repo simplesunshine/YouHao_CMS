@@ -127,9 +127,29 @@ class SsqLottoHistoryController extends AdminController
                 if (!$currentId) return;
 
                 $data = DB::table('ssq_lotto_history')->where('id', $currentId)->first();
-                $prevData = DB::table('ssq_lotto_history')->where('id', '<', $currentId)->orderBy('id', 'desc')->first();
+                // --- 新增：计算 sum_interval (和值间隔) ---
+                // 查找在当前记录之前，出现的相同和值的最近一条记录
+                $lastSameSumRecord = DB::table('ssq_lotto_history')
+                    ->where('id', '<', $currentId)
+                    ->where('sum', $data->sum)
+                    ->orderBy('id', 'desc')
+                    ->first();
+
+                $sumInterval = 0;
+                if ($lastSameSumRecord) {
+                    // 间隔计算：统计这两条记录之间有多少期（包含本身）
+                    // 逻辑：count(ID在两者之间的记录) + 1
+                    $sumInterval = DB::table('ssq_lotto_history')
+                        ->where('id', '>', $lastSameSumRecord->id)
+                        ->where('id', '<=', $currentId)
+                        ->count();
+                }
                 
                 $updatePayload = [];
+                $updatePayload['sum_interval'] = $sumInterval; // 将计算结果放入更新负载
+
+                $prevData = DB::table('ssq_lotto_history')->where('id', '<', $currentId)->orderBy('id', 'desc')->first();
+                
                 $currentNums = explode(',', $data->front);
 
                 // --- A. 连续性与重号统计 ---
