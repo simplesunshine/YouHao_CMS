@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 class UpdateDltLottoStats extends Command
 {
     protected $signature = 'lotto:update-dlt-stats';
-    protected $description = '补全大乐透历史表的趋势连续性及重复号码数据';
+    protected $description = '补全大乐透历史表的趋势连续性、重复号码及和值间隔数据';
 
     public function handle()
     {
@@ -33,6 +33,9 @@ class UpdateDltLottoStats extends Command
             'reds'       => [], 
         ];
 
+        // 新增：用于记录每个“和值”上一次出现的索引位置
+        $sumLastSeenIndex = [];
+
         $counts = [
             'zone'      => 1,
             'odd'       => 1,
@@ -45,12 +48,11 @@ class UpdateDltLottoStats extends Command
         DB::beginTransaction();
         try {
             foreach ($records as $index => $row) {
-                // 1. 获取当前前区号码（按 DDL 逻辑提取 6 个字段）
+                // 1. 获取当前前区号码
                 $currentReds = [
                     (int)$row->front1, (int)$row->front2, (int)$row->front3, 
                     (int)$row->front4, (int)$row->front5
                 ];
-                // 过滤掉可能的 0（如果某期只有 5 个号）
                 $currentReds = array_filter($currentReds);
                 sort($currentReds);
 
@@ -59,6 +61,15 @@ class UpdateDltLottoStats extends Command
                 $currentSum = array_sum($currentReds);
                 $currentSumTail = $currentSum % 10;
                 $currentSumRange = floor($currentSum / 10);
+
+                // --- 核心新增：计算和值间隔 ---
+                $sumInterval = 0;
+                if (isset($sumLastSeenIndex[$currentSum])) {
+                    // 当前索引 - 上次出现索引 = 间隔期数
+                    $sumInterval = $index - $sumLastSeenIndex[$currentSum];
+                }
+                // 更新该和值最后一次出现的索引
+                $sumLastSeenIndex[$currentSum] = $index;
 
                 // 计算奇数个数
                 $currentOdd = 0;
@@ -98,7 +109,7 @@ class UpdateDltLottoStats extends Command
                     ->where('id', $row->id)
                     ->update([
                         'sum'                    => (string)$currentSum,
-                        'sum'                    => (string)$currentSum,
+                        'sum_interval'           => $sumInterval, // 更新新增字段
                         'span'                   => $currentSpan,
                         'odd_count'              => $currentOdd,
                         'even_count'             => count($currentReds) - $currentOdd,
@@ -128,7 +139,7 @@ class UpdateDltLottoStats extends Command
                 }
             }
             DB::commit();
-            $this->info(">>> 任务成功！大乐透历史统计指标已全部补全。");
+            $this->info(">>> 任务成功！大乐透历史统计指标（含和值间隔）已全部补全。");
         } catch (\Exception $e) {
             DB::rollBack();
             $this->error("执行出错：" . $e->getMessage());

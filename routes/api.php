@@ -54,6 +54,10 @@ Route::get('/dlt/number-distribution', [DltController::class, 'numberDistributio
 Route::get('/dlt/back-combo-stats', [DltController::class, 'backComboStats']);
 Route::get('/dlt/pair-stats', [DltController::class, 'pairStats']);
 
+//新加和值遗漏
+Route::get('/ssq/sum_interval', [SsqController::class, 'sum_interval']);
+Route::get('/dlt/sum_interval', [DltController::class, 'sum_interval']);
+
 
 // --- 2. 保护接口 (必须登录后才能访问) ---
 
@@ -75,8 +79,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ssq/score', [SsqController::class, 'score']); // 新加的评分详情
     Route::get('/dlt/score', [DltController::class, 'score']); // 新加的评分详情
 
-    //新加和值遗漏
-    Route::get('/ssq/sum_interval', [SsqController::class, 'sum_interval']); // 新加的评分详情
+    
 
     
     // SSQ 复式相关

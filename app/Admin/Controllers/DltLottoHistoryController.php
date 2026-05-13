@@ -113,10 +113,27 @@ class DltLottoHistoryController extends AdminController
                 if (!$currentId) return;
 
                 $data = DB::table('dlt_lotto_history')->where('id', $currentId)->first();
-                $prevData = DB::table('dlt_lotto_history')->where('id', '<', $currentId)->orderBy('id', 'desc')->first();
                 if (!$data) return;
-
                 $updatePayload = [];
+                // --- 【核心新增】逻辑：计算 sum_interval (和值间隔) ---
+                $lastSameSumRecord = DB::table('dlt_lotto_history')
+                    ->where('id', '<', $currentId)
+                    ->where('sum', $data->sum)
+                    ->orderBy('id', 'desc')
+                    ->first();
+
+                $sumInterval = 0;
+                if ($lastSameSumRecord) {
+                    // 计算标准遗漏值：当前 ID 与上次出现相同和值的 ID 之间的记录总数
+                    $sumInterval = DB::table('dlt_lotto_history')
+                        ->where('id', '>', $lastSameSumRecord->id)
+                        ->where('id', '<=', $currentId)
+                        ->count();
+                }
+                $updatePayload['sum_interval'] = $sumInterval;
+
+                $prevData = DB::table('dlt_lotto_history')->where('id', '<', $currentId)->orderBy('id', 'desc')->first();
+
                 $currentFronts = [(int)$data->front1, (int)$data->front2, (int)$data->front3, (int)$data->front4, (int)$data->front5];
                 sort($currentFronts);
 
