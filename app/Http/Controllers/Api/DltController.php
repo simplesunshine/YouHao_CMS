@@ -47,6 +47,7 @@ class DltController extends Controller
         $count = DB::table('user_lotto_records')
             ->where('user_id', $user->id)
             ->where('lottery_type', 'dlt')
+            ->whereDate('created_at', now()->toDateString())
             ->count();
             
         $maxPerUser = 500;
