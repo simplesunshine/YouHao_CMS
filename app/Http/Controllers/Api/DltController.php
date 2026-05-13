@@ -104,6 +104,26 @@ class DltController extends Controller
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
+            // --- ⭐ 新增：包含近期和值逻辑 ---
+            case 'include_sum':
+                // 获取前端传来的范围期数，默认 10 期
+                $includeCount = (int)$request->input('exclude', 10); 
+                // 获取最近 N 期的和值集合
+                $includeSums = DB::table('dlt_lotto_history')
+                    ->orderByDesc('issue')
+                    ->limit($includeCount)
+                    ->pluck('sum')
+                    ->unique() // 去重，提高查询效率
+                    ->toArray();
+
+                if (!empty($includeSums)) {
+                    $query->whereIn('sum', $includeSums);
+                } else {
+                    return response()->json(['success' => false, 'message' => '无法获取历史和值数据'], 400);
+                }
+                $results = $query->inRandomOrder()->take($take)->get();
+                break;
+                    
             case 'history_sum':
                 $excludeCount = (int)$request->input('exclude', 0);
                 $excludeSums = $excludeCount > 0 ? DB::table('dlt_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('sum')->toArray() : [];
