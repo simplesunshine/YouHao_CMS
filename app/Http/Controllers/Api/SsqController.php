@@ -117,6 +117,29 @@ class SsqController extends Controller
                 $results = $query->where('consecutive_count', $consecutive)->inRandomOrder()->take($take)->get();
                 break;
 
+            // --- ⭐ 新增：双色球包含近期和值逻辑 ---
+            case 'include_sum':
+                // 获取前端传来的范围期数，对应前端的 pickerValue[0]
+                // 注意：前端传的参数名是 exclude (为了兼容老接口字段)，后端这里直接读取
+                $includeCount = (int)$request->input('exclude', 10); 
+                
+                // 从历史开奖表提取最近 N 期的和值作为“热点池”
+                $includeSums = DB::table('ssq_lotto_history')
+                    ->orderByDesc('issue')
+                    ->limit($includeCount)
+                    ->pluck('sum')
+                    ->unique()
+                    ->toArray();
+
+                if (!empty($includeSums)) {
+                    // 仅从基础库中筛选和值在“热点池”内的记录
+                    $query->whereIn('sum', $includeSums);
+                } else {
+                    return response()->json(['success' => false, 'message' => '无法提取历史和值特征'], 400);
+                }
+                $results = $query->inRandomOrder()->take($take)->get();
+                break;
+
             case 'history_sum':
                 $excludeCount = (int)$request->input('exclude', 0);
                 $excludeSums = $excludeCount > 0 ? DB::table('ssq_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('sum')->toArray() : [];
@@ -675,6 +698,46 @@ class SsqController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => '服务器错误：' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+
+     /**
+     * 获取双色球历史首尾号段趋势 (龙头/凤尾)
+     * 返回顺序：按期号由小到大 (由旧到新)
+     */
+    public function edgeHistory(Request $request)
+    {
+        $limit = $request->query('limit', 20);
+
+        try {
+            $data = DB::table('ssq_lotto_history')
+                ->select(['issue', 'front1', 'front6', 'span'])
+                ->orderBy('issue', 'desc') // 先倒序取最新的 N 期
+                ->limit($limit)
+                ->get()
+                ->reverse() // ⭐ 关键点：将最新的 N 期数据反转，变为顺序排列
+                ->values()   // ⭐ 重置索引，确保返回的是纯数组而非对象
+                ->map(function ($item) {
+                    return [
+                        'issue' => $item->issue,
+                        'issue_short' => substr($item->issue, -3) . '期',
+                        'first' => str_pad($item->front1, 2, '0', STR_PAD_LEFT),
+                        'last' => str_pad($item->front6, 2, '0', STR_PAD_LEFT),
+                        'span' => $item->span
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'data'    => $data,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => '获取首尾历史失败: ' . $e->getMessage()
             ], 500);
         }
     }

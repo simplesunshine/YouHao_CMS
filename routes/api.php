@@ -58,6 +58,9 @@ Route::get('/dlt/pair-stats', [DltController::class, 'pairStats']);
 Route::get('/ssq/sum_interval', [SsqController::class, 'sum_interval']);
 Route::get('/dlt/sum_interval', [DltController::class, 'sum_interval']);
 
+Route::get('/ssq/edge-history', [SsqController::class, 'edgeHistory']);
+Route::get('/dlt/edge-history', [DltController::class, 'edgeHistory']);
+
 
 // --- 2. 保护接口 (必须登录后才能访问) ---
 

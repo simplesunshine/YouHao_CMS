@@ -538,4 +538,43 @@ class DltController extends Controller
             ], 500);
         }
     }
+
+        /**
+     * 获取大乐透历史首尾号段趋势 (前区龙头/凤尾)
+     * 返回顺序：按期号由小到大 (由旧到新)
+     */
+    public function edgeHistory(Request $request)
+    {
+        $limit = $request->query('limit', 20);
+
+        try {
+            $data = DB::table('dlt_lotto_history') // 注意表名
+                ->select(['issue', 'front1', 'front5', 'span']) // 大乐透末位是 front5
+                ->orderBy('issue', 'desc')
+                ->limit($limit)
+                ->get()
+                ->reverse() 
+                ->values()   
+                ->map(function ($item) {
+                    return [
+                        'issue' => $item->issue,
+                        'issue_short' => substr($item->issue, -3) . '期',
+                        'first' => str_pad($item->front1, 2, '0', STR_PAD_LEFT),
+                        'last' => str_pad($item->front5, 2, '0', STR_PAD_LEFT), // 大乐透对应字段
+                        'span' => $item->span
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'data'    => $data,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => '获取首尾历史失败: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }
