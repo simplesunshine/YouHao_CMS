@@ -37,6 +37,8 @@ class DltLottoHistoryController extends AdminController
             return $html;
         });
 
+        $grid->column('position', '位置');
+
         // 严格按 ID 倒序，确保时序逻辑直观
         $grid->model()->orderByDesc('id');
 
@@ -115,6 +117,12 @@ class DltLottoHistoryController extends AdminController
                 $data = DB::table('dlt_lotto_history')->where('id', $currentId)->first();
                 if (!$data) return;
                 $updatePayload = [];
+                // 使用保存前生成的 front 字段 (格式如: "01,05,10,15,20")
+                $positionId = DB::table('basic_dlt')
+                    ->where('front', $data->front)
+                    ->value('id');
+                
+                $updatePayload['position'] = $positionId;
                 // --- 【核心新增】逻辑：计算 sum_interval (和值间隔) ---
                 $lastSameSumRecord = DB::table('dlt_lotto_history')
                     ->where('id', '<', $currentId)

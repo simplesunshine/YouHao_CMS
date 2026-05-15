@@ -370,6 +370,26 @@ class DltController extends Controller
         $reasons = [];
         $baseScore = 95;
 
+        // 定义区间映射逻辑
+        $getPositionSegment = function($pos) {
+            if ($pos <= 99999) return 1;
+            if ($pos <= 199999) return 2;
+            if ($pos <= 299999) return 3;
+            return 4; // 300000 - 330000+
+        };
+
+        if ($preHistory) {
+            $currentSegment = $getPositionSegment($row->id); // 当前评分号所在的 basic_dlt id
+            $lastSegment = $getPositionSegment($latestHistory->position); // 上期历史
+            $preSegment = $getPositionSegment($preHistory->position);   // 上上期历史
+
+            // 如果最近两期在同一个区间，且当前号也在同一个区间
+            if ($lastSegment === $preSegment && $currentSegment === $lastSegment) {
+                $baseScore -= 80;
+                $reasons[] = "号码连续落在一个区间（区间{$currentSegment}），评分下降。";
+            }
+        }
+
         // --- 核心逻辑 A：重号拦截与极限压制 ---
         $currentDuplicateWithLast = array_intersect($currentFronts, $lastFronts);
         $currentDupCount = count($currentDuplicateWithLast);
@@ -436,7 +456,7 @@ class DltController extends Controller
                     $baseScore -= 90;
                     $reasons[] = "前三位奇偶形态({$currentP})达成三连，风险极大。";
                 } else {
-                    $baseScore -= 20;
+                    $baseScore -= 10;
                     $reasons[] = "前三位奇偶形态({$currentP})与上期雷同，降低权重。";
                 }
             } else {
