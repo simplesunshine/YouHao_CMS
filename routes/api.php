@@ -14,6 +14,8 @@ use App\Http\Controllers\Api\LottoAnalysisController;
 use App\Http\Controllers\Api\SsqFushiController;
 use App\Http\Controllers\Api\DltFushiController;
 use App\Http\Controllers\Api\LottoRecordController;
+use App\Http\Controllers\Api\LotteryStrategyController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +28,9 @@ use App\Http\Controllers\Api\LottoRecordController;
 // 用户认证
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
+
+// 获取机选思路数据
+Route::get('/strategy/{type}', [LotteryStrategyController::class, 'getStrategyData']);
 
 // 基础数据与设置
 Route::get('/lottery/settings', [LotterySettingApiController::class, 'index']);
