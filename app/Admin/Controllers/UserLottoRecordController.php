@@ -78,15 +78,6 @@ class UserLottoRecordController extends AdminController
                 $grid->column('red_dan', '红胆')->badge('orange');
             }
 
-            $grid->column('is_win', '中奖')->display(function ($v) {
-                // 强制转换为整数，null 会变成 0
-                $v = (int)$v;
-                $map = [0 => '未中奖', 1 => '中奖'];
-                $text = $map[$v] ?? '未知';
-                $color = $v === 1 ? 'success' : 'danger';
-                
-                return "<span class='text-{$color}'><i class='fa fa-circle'></i> {$text}</span>";
-            });
 
             $grid->column('created_at', '机选时间')->sortable();
 
