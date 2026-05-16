@@ -171,7 +171,6 @@ class DltController extends Controller
                 'blue_numbers'  => $row->back,  // 后区
                 'red_dan'       => '',
                 'kill_numbers'  => '',
-                'is_win'        => 0,
                 'ip'            => $ip,
                 'created_at'    => now(),
                 'updated_at'    => now(),
