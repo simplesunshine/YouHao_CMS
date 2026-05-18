@@ -50,7 +50,6 @@ class LottoRecordController extends Controller
 
             $hit_front = [];
             $hit_back = [];
-            $is_win = $item->is_win;
 
             if (isset($openResults[$item->issue])) {
                 $opened = $openResults[$item->issue];
@@ -61,7 +60,6 @@ class LottoRecordController extends Controller
                 $hit_front = array_values(array_intersect($allUserReds, $openedFront));
                 $hit_back = array_values(array_intersect($userBlue, $openedBack));
 
-                if ($is_win == 0) $is_win = 2; // 已开奖
             }
 
             return [
@@ -79,7 +77,6 @@ class LottoRecordController extends Controller
                     'red' => count($hit_front),
                     'blue' => count($hit_back)
                 ],
-                'is_win' => $is_win,
                 'created_at' => $item->created_at,
             ];
         });
