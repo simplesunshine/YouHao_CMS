@@ -69,7 +69,7 @@ Route::get('/dlt/edge-history', [DltController::class, 'edgeHistory']);
 
 // --- 2. 保护接口 (必须登录后才能访问) ---
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'update.last.login'])->group(function (){
     
     // 用户个人信息
     Route::get('/user', function (Request $request) {
