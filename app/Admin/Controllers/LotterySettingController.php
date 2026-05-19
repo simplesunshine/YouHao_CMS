@@ -15,7 +15,7 @@ class LotterySettingController extends AdminController
     protected function grid()
     {
         return Grid::make(new LotterySetting(), function (Grid $grid) {
-            $grid->column('id')->sortable();
+            $grid->column('id', 'ID')->sortable();
             $grid->column('type')->using([1 => '双色球', 2 => '大乐透'])->label([
                 1 => 'danger',
                 2 => 'primary'
@@ -25,6 +25,9 @@ class LotterySettingController extends AdminController
             $grid->column('created_at', '创建时间')->display(function ($v) {
                 return date('Y-m-d H:i', strtotime($v));
             });
+
+            // 按 ID 排序确保时序准确
+            $grid->model()->orderByDesc('id');
 
             $grid->filter(function (Grid\Filter $filter) {
                 $filter->equal('type', '彩种')->select([1 => '双色球', 2 => '大乐透']);
