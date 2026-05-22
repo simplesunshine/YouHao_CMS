@@ -144,6 +144,40 @@ class DltController extends Controller
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
 
+            // --- ⭐ 新增：前区杀号强行剥离模块 ---
+            case 'kill_pick':
+                // 1. 获取前端传入升序处理好的杀号池字符串 (例如: "02,20,33")
+                $killFrontStr = $prefs['kill_front'] ?? '';
+                
+                if (!empty($killFrontStr)) {
+                    // 2. 切割并转换为纯数字纯净数组
+                    $killFrontArray = array_filter(explode(',', $killFrontStr), function($val) {
+                        return $val !== '' && is_numeric($val);
+                    });
+                    $killFrontArray = array_map('intval', $killFrontArray);
+
+                    // 3. 健壮性业务熔断：若杀号超出 15 码，直接拦截，维护号段元空间稳定
+                    if (count($killFrontArray) > 15) {
+                        return response()->json([
+                            'success' => false, 
+                            'message' => '前区杀号上限不可超过 15 码'
+                        ], 400);
+                    }
+
+                    // 4. 矩阵式排查：确保基础池里 5 个红球位置（code1 到 code5）都不包含在杀号池中
+                    if (!empty($killFrontArray)) {
+                        $query->whereNotIn('code1', $killFrontArray)
+                              ->whereNotIn('code2', $killFrontArray)
+                              ->whereNotIn('code3', $killFrontArray)
+                              ->whereNotIn('code4', $killFrontArray)
+                              ->whereNotIn('code5', $killFrontArray);
+                    }
+                }
+                
+                // 5. 执行云端清洗并随机调取满足过滤条件的方案
+                $results = $query->inRandomOrder()->take($take)->get();
+                break;
+
             default:
                 $results = $query->inRandomOrder()->take($take)->get();
         }
@@ -559,7 +593,7 @@ class DltController extends Controller
         }
     }
 
-        /**
+    /**
      * 获取大乐透历史首尾号段趋势 (前区龙头/凤尾)
      * 返回顺序：按期号由小到大 (由旧到新)
      */
@@ -594,6 +628,31 @@ class DltController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => '获取首尾历史失败: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    //近5期号码
+    public function hotNumber()
+    {
+        $limit = 5;
+
+        try {
+            $data = DB::table('dlt_lotto_history') // 注意表名
+                ->select(['issue', 'front1', 'front2', 'front3', 'front4', 'front5']) 
+                ->orderBy('issue', 'desc')
+                ->limit($limit)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data'    => $data,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => '获取热号失败: ' . $e->getMessage()
             ], 500);
         }
     }
