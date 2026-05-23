@@ -74,7 +74,21 @@ class SsqController extends Controller
             case 'normal':
                 $results = $query->inRandomOrder()->take($take)->get();
                 break;
-
+            case 'kill_pick':
+                $killFrontStr = $prefs['kill_front'] ?? '';
+                if (!empty($killFrontStr)) {
+                    $killFrontArray = array_filter(array_map('intval', explode(',', $killFrontStr)));
+                    if (!empty($killFrontArray)) {
+                        $query->whereNotIn('code1', $killFrontArray)
+                              ->whereNotIn('code2', $killFrontArray)
+                              ->whereNotIn('code3', $killFrontArray)
+                              ->whereNotIn('code4', $killFrontArray)
+                              ->whereNotIn('code5', $killFrontArray)
+                              ->whereNotIn('code6', $killFrontArray);
+                    }
+                }
+                $results = $query->inRandomOrder()->take($take)->get();
+                break;                
             case 'dan_only':
                 $dan = (array)($prefs['dan'] ?? []);
                 if (count($dan) < 1 || count($dan) > 5) {
@@ -738,6 +752,31 @@ class SsqController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => '获取首尾历史失败: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    //近5期号码
+    public function hotNumber()
+    {
+        $limit = 5;
+
+        try {
+            $data = DB::table('ssq_lotto_history') // 注意表名
+                ->select(['issue', 'front1', 'front2', 'front3', 'front4', 'front5', 'front6']) 
+                ->orderBy('issue', 'desc')
+                ->limit($limit)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data'    => $data,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => '获取热号失败: ' . $e->getMessage()
             ], 500);
         }
     }

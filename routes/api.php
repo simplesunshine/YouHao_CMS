@@ -66,6 +66,7 @@ Route::get('/dlt/sum_interval', [DltController::class, 'sum_interval']);
 Route::get('/ssq/edge-history', [SsqController::class, 'edgeHistory']);
 Route::get('/dlt/edge-history', [DltController::class, 'edgeHistory']);
 
+Route::get('/ssq/hot_number', [SsqController::class, 'hotNumber']);
 Route::get('/dlt/hot_number', [DltController::class, 'hotNumber']);
 
 
