@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\SsqFushiController;
 use App\Http\Controllers\Api\DltFushiController;
 use App\Http\Controllers\Api\LottoRecordController;
 use App\Http\Controllers\Api\LotteryStrategyController;
+use App\Http\Controllers\Api\DltReLiTuController;
 
 
 /*
@@ -68,6 +69,9 @@ Route::get('/dlt/edge-history', [DltController::class, 'edgeHistory']);
 
 Route::get('/ssq/hot_number', [SsqController::class, 'hotNumber']);
 Route::get('/dlt/hot_number', [DltController::class, 'hotNumber']);
+
+Route::get('/dlt/relitu', [DltReLiTuController::class, 'index']);
+
 
 
 // --- 2. 保护接口 (必须登录后才能访问) ---
