@@ -27,6 +27,8 @@ class UserLottoRecordController extends AdminController
             // --- 下面是列定义，必须全部写出来才会显示 ---
 
             $grid->model()->orderBy('id', 'desc'); 
+            // 设置当前表格默认每页显示 100 条
+            $grid->paginate(100); 
             // --- 修改这里 ---
             // 'user.name' 表示取关联模型 user 里的 name 字段
             // 如果你的用户表里用户名变量叫 nickname，就写 'user.nickname'
