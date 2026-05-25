@@ -17,6 +17,8 @@ class UserController extends AdminController
             $grid->model()->orderBy('id', 'desc');
 
             $grid->column('id', 'ID')->sortable();
+            // 设置当前表格默认每页显示 100 条
+            $grid->paginate(100); 
             
             // 展示头像，如果为空给个默认图
             $grid->column('profile_picture', '头像')->image('', 50, 50);
