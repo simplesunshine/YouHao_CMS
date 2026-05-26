@@ -41,7 +41,7 @@ class UserController extends AdminController
                 if (!$time) return '<span class="text-secondary">从未登录</span>';
                 $ip = $this->last_login_ip ?: '未知IP';
                 return "<div>{$time}</div><small class='text-muted'>IP: {$ip}</small>";
-            });
+            })->sortable();
 
             $grid->column('created_at', '注册时间')->sortable();
 
