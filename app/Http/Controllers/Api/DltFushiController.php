@@ -6,9 +6,17 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use App\Services\DltService; // <--- 1. 引入大乐透服务层
 
 class DltFushiController extends Controller
 {
+    protected $dltService;
+
+    // 2. 构造函数注入服务
+    public function __construct(DltService $dltService)
+    {
+        $this->dltService = $dltService;
+    }
     /**
      * 内部限流逻辑：基于 User ID (1秒1次)
      */
@@ -23,7 +31,7 @@ class DltFushiController extends Controller
     }
 
     /**
-     * 1. 普通复式生成
+     * 1. 普通复式生成（融合 40 期冷号绝对清除过滤）
      */
     public function normalFushi(Request $request)
     {
@@ -35,9 +43,30 @@ class DltFushiController extends Controller
         $redCount = intval($request->input('red_count', 5));
         $blueCount = intval($request->input('blue_count', 2));
 
-        if ($redCount < 5 || $redCount > 15 || $blueCount < 2 || $blueCount > 12) {
+        if ($redCount < 5 || $redCount > 17 || $blueCount < 2 || $blueCount > 12) {
             return response()->json(['code' => 400, 'msg' => '球数不合法']);
         }
+
+        // =================【核心优化：获取 40 期前区冷号库】=================
+        $distribution = $this->dltService->getNumberDistribution(40);
+     
+        $coldNumbers = [];
+        if ($distribution && isset($distribution['red'])) {
+            foreach ($distribution['red'] as $item) {
+                if ($item['count'] < 5) {
+                    $coldNumbers[] = intval($item['number']);
+                }
+            }
+        }
+
+        // 全集 1-35 排除系统冷号，得到纯净的前区安全池
+        $pureRedPool = array_values(array_diff(range(1, 35), $coldNumbers));
+
+        // 兜底防护：如果冷号杀得太狠，常规池不够用户选的红球数，则强制退回全集
+        if (count($pureRedPool) < $redCount) {
+            $pureRedPool = range(1, 35);
+        }
+        // =================================================================
 
         $row = DB::table('dlt_lotto_history')->select('red_ball_omission')->orderByDesc('id')->first();
         if (!$row) return response()->json(['code' => 500, 'msg' => '历史数据不存在']);
@@ -46,7 +75,9 @@ class DltFushiController extends Controller
         $try = 0;
         while ($try < 100) {
             $try++;
-            $reds = collect(range(1, 35))->shuffle()->take($redCount)->sort()->values()->toArray();
+            
+            // 从完全没有冷号的安全池里随机摇号
+            $reds = collect($pureRedPool)->shuffle()->take($redCount)->sort()->values()->toArray();
             $redOmits = array_map(fn($n) => $redOmit[$n] ?? 0, $reds);
 
             // 规则校验
@@ -56,8 +87,8 @@ class DltFushiController extends Controller
 
             $blues = collect(range(1, 12))->shuffle()->take($blueCount)->sort()->values()->toArray();
 
-            // 处理期号并存库
-            $this->saveRecord($user, $request, 'normal_fushi', '', '', $reds, $blues);
+            // 存库：把本次参与过滤掉的系统冷号作为 kill_numbers 写入记录，方便追踪
+            $this->saveRecord($user, $request, 'normal_fushi', '', implode(',', $coldNumbers), $reds, $blues);
 
             return response()->json([
                 'code' => 200,
