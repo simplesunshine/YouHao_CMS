@@ -91,10 +91,10 @@ Route::middleware(['auth:sanctum', 'update.last.login'])->group(function (){
     Route::post('/ssq/pick', [SsqController::class, 'pick']);
     Route::get('/ssq/download', [SsqController::class, 'download']);
 
-    Route::get('/ssq/score', [SsqController::class, 'score']); // 新加的评分详情
-    Route::get('/dlt/score', [DltController::class, 'score']); // 新加的评分详情
-
+    Route::get('/ssq/score', [SsqController::class, 'score']); // 评分详情接口
+    Route::get('/ssq/check-omission', [SsqController::class, 'checkOmission']); // 【新加】红球6-11遗漏值过滤形态接口
     
+    Route::get('/dlt/score', [DltController::class, 'score']); // 大乐透评分详情
 
     
     // SSQ 复式相关
