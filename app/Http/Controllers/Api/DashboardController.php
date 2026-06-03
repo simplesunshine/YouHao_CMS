@@ -109,7 +109,7 @@ class DashboardController extends Controller
                     'max_omission_num' => $maxOmissionNum,
                     'max_omission_count' => $maxOmissionCount,
                     'history_total_hit' => $totalHit,
-                    'last_time' => $lastTimeRecord ? $lastTimeRecord->open_date : null,
+                    //'last_time' => $lastTimeRecord ? $lastTimeRecord->open_date : null,
                     'hot_combos' => $hotCombos
                 ]
             ];
