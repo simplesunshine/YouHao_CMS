@@ -747,14 +747,13 @@ class SsqController extends Controller
     }
 
     /**
-     * 校验红球在 6-11 遗漏值区间内的号码形态
+     * 校验红球在 6-11 遗漏值区间内的号码形态（追加全大遗漏过滤）
      */
     public function checkOmission(Request $request)
     {
         // 1. 接收前端传过来的号码数据
         $numbers = $request->input('numbers'); 
         if (is_string($numbers)) {
-            // 如果前端传的是逗号分隔的字符串 "03,06,11,19,25,32,07"，转为数组
             $numbers = explode(',', $numbers);
         }
 
@@ -765,14 +764,13 @@ class SsqController extends Controller
             ], 400);
         }
 
-        // 提取前6个红球，并统一格式化为不带前导零的纯数字字符串（因为你的 JSON 键是 "1", "2", "3"）
+        // 提取前6个红球，并统一格式化为纯数字字符串
         $redBalls = array_map(function($num) {
             return (string)intval($num);
         }, array_slice($numbers, 0, 6));
 
         try {
-            // 2. 从双色球历史表中获取最新一期的遗漏值数据
-            // 假设你的模型叫 SsqHistory，按期号(issue)或者开奖时间倒序取最新一条
+            // 2. 获取最新一期的遗漏值基础数据
             $lastRecord = SsqLottoHistory::orderBy('issue', 'desc')->first();
 
             if (!$lastRecord || !$lastRecord->red_ball_omission) {
@@ -783,39 +781,55 @@ class SsqController extends Controller
             }
 
             // 3. 解析遗漏值 JSON
-            // 如果你在模型里没有设置 casts，这里用 json_decode 转成数组
             $omissionMap = is_array($lastRecord->red_ball_omission) 
                 ? $lastRecord->red_ball_omission 
                 : json_decode($lastRecord->red_ball_omission, true);
 
             $matchCount = 0;
-            $matchedDetails = []; // 用于存放匹配到的具体号码和遗漏值，让前端提示更详细
+            $matchedDetails = []; 
+            
+            // 【新加状态】假设所有号码的遗漏值都大于 1
+            $allGreaterThanOne = true; 
 
-            // 4. 遍历当前机选的 6 个红球，计算有多少个号码的遗漏值在 6-11 之间
+            // 4. 遍历当前机选的 6 个红球进行多维度演算
             foreach ($redBalls as $ball) {
-                $omissionValue = $omissionMap[$ball] ?? null;
+                $omissionValue = $omissionMap[$ball] ?? 0; // 默认防呆为 0
 
-                if ($omissionValue !== null && $omissionValue >= 6 && $omissionValue <= 11) {
+                // 核心一：校验是否满足全员大于 1。如果只要有一个红球遗漏值是 0 或 1，该条件即破产
+                if ($omissionValue <= 1) {
+                    $allGreaterThanOne = false;
+                }
+
+                // 核心二：原有的 6-11 区间统计
+                if ($omissionValue >= 6 && $omissionValue <= 11) {
                     $matchCount++;
-                    // 补足两位数展示，感官更好
                     $displayBall = str_pad($ball, 2, '0', STR_PAD_LEFT);
                     $matchedDetails[] = "红球{$displayBall}(遗漏{$omissionValue})";
                 }
             }
 
-            // 5. 根据“最少1个，最多2个”的业务规则生成精准 Tip 提示
-            if ($matchCount >= 1 && $matchCount <= 2) {
-                $detailStr = implode('、', $matchedDetails);
-                $tip = "【形态达标】当前方案符合黄金规律！红球在 6-11 遗漏值区间的号码共 {$matchCount} 个（标准要求 1~2 个）。涉及号码：{$detailStr}。";
-                $isStandard = true;
-            } else {
-                if ($matchCount == 0) {
-                    $tip = "【形态异常提示】当前方案中，没有任何一个红球的遗漏值处于 6-11 的中开区间。历史大数据表明该区间最少应包含 1~2 个号码，当前选号可能会偏向极端，请理性参考。";
-                } else {
-                    $detailStr = implode('、', $matchedDetails);
-                    $tip = "【形态异常提示】当前方案中，遗漏值在 6-11 之间的红球多达 {$matchCount} 个（涉及：{$detailStr}），超出了历史高频的 1~2 个标准标准。号码堆积过密，形态不够均衡。";
-                }
+            // 5. 组合条件判定与精准 Tip 动态生成
+            $isStandard = true;
+
+            if ($allGreaterThanOne) {
+                // 【触发新需求警报】6个红球全部遗漏值都 > 1，意味着没有热号和重号，极为反常
+                $tip = "【严重形态异常】当前 6 个红球的遗漏值全部大于 1！历史开奖中，完全不包含热号/重号（遗漏0-1）的期数极罕见。建议重新机选以补充热码防线。";
                 $isStandard = false;
+            } else {
+                // 如果没有触发“全员大于1”的极端情况，则走原有的 6-11 个数标准判断
+                if ($matchCount >= 1 && $matchCount <= 2) {
+                    $detailStr = implode('、', $matchedDetails);
+                    $tip = "【形态达标】当前方案符合黄金规律！红球在 6-11 遗漏值区间的号码共 {$matchCount} 个（标准要求 1~2 个）。涉及号码：{$detailStr}。";
+                    $isStandard = true;
+                } else {
+                    if ($matchCount == 0) {
+                        $tip = "【形态异常提示】当前方案中，没有任何一个红球的遗漏值处于 6-11 的中开区间。历史大数据表明该区间最少应包含 1~2 个号码，当前选号可能会偏向极端，请理性参考。";
+                    } else {
+                        $detailStr = implode('、', $matchedDetails);
+                        $tip = "【形态异常提示】当前方案中，遗漏值在 6-11 之间的红球多达 {$matchCount} 个（涉及：{$detailStr}），超出了历史高频的 1~2 个标准标准。号码堆积过密，形态不够均衡。";
+                    }
+                    $isStandard = false;
+                }
             }
 
             return response()->json([
@@ -823,6 +837,7 @@ class SsqController extends Controller
                 'data' => [
                     'match_count' => $matchCount,
                     'is_standard' => $isStandard,
+                    'all_greater_than_one' => $allGreaterThanOne, // 返回给前端备用
                     'tip' => $tip
                 ]
             ]);
