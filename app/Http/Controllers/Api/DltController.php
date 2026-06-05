@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use App\Services\DltLotteryFeatureService;
 use App\Models\LotterySetting;
+use App\Models\DltLottoHistory;
 
 class DltController extends Controller
 {
@@ -653,6 +654,115 @@ class DltController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => '获取热号失败: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * 校验大乐透前区 5 码在 5-9 遗漏值区间内的号码形态（全部大于2过滤）
+     */
+    public function checkOmission(Request $request)
+    {
+        // 1. 接收前端传过来的号码数据
+        $numbers = $request->input('numbers'); 
+        if (is_string($numbers)) {
+            $numbers = explode(',', $numbers);
+        }
+
+        // 大乐透前区核心只需校验 5 个号码
+        if (!$numbers || count($numbers) < 5) {
+            return response()->json([
+                'success' => false,
+                'message' => '号码格式不正确'
+            ], 400);
+        }
+
+        // 提取前 5 个前区号码，并统一格式化为纯数字字符串（对应数据库 JSON 键）
+        $frontBalls = array_map(function($num) {
+            return (string)intval($num);
+        }, array_slice($numbers, 0, 5));
+
+        try {
+            // 2. 获取最新一期大乐透的遗漏值基础数据（✨ 修正：类名统一为 DltLottoHistory）
+            $lastRecord = DltLottoHistory::orderBy('issue', 'desc')->first(); 
+
+            // 自动兼容可能存在的大乐透遗漏值字段名
+            $omissionField = $lastRecord->front_ball_omission ?? $lastRecord->red_ball_omission ?? null;
+
+            if (!$lastRecord || !$omissionField) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '未找到最新大乐透的遗漏值基础数据'
+                ]);
+            }
+
+            // 3. 解析遗漏值 JSON
+            $omissionMap = is_array($omissionField) 
+                ? $omissionField 
+                : json_decode($omissionField, true);
+
+            $matchCount = 0;
+            $matchedDetails = []; 
+            
+            // ✨ 修正：变量名修改为符合业务的 Two，代表“假设所有号码的遗漏值都大于 2”
+            $allGreaterThanTwo = true; 
+
+            // 4. 遍历当前机选的 5 个前区号码进行多维度形态演算
+            foreach ($frontBalls as $ball) {
+                $omissionValue = $omissionMap[$ball] ?? 0; // 默认防呆为 0
+
+                // 核心一：校验是否满足全员大于 2。如果只要有一个号码遗漏值是 0、1、2（热码/重码/次热码），该条件破产
+                if ($omissionValue <= 2) {
+                    $allGreaterThanTwo = false;
+                }
+
+                // 核心二：切换大乐透专属的 5-9 遗漏值区间统计
+                if ($omissionValue >= 5 && $omissionValue <= 9) {
+                    $matchCount++;
+                    $displayBall = str_pad($ball, 2, '0', STR_PAD_LEFT);
+                    $matchedDetails[] = "前区{$displayBall}(遗漏{$omissionValue})";
+                }
+            }
+
+            // 5. 组合条件判定与精准 Tip 动态生成
+            $isStandard = true;
+
+            if ($allGreaterThanTwo) {
+                // 【触发一票否决】5个前区号码全部遗漏值都 > 2，意味着连次热码都没有，全走温冷路线，极其极端
+                $tip = "【严重形态异常】当前 5 个前区号码的遗漏值全部大于 2！大乐透历史开奖中，完全不包含任何热码（遗漏0-2）的形态极其罕见。建议重新机选以补充热码防线。";
+                $isStandard = false;
+            } else {
+                // 如果没有触发“全员大于2”的极端情况，则走大乐透 5-9 区间的个数标准判断（你设定要求的 1~3 个）
+                if ($matchCount >= 1 && $matchCount <= 3) {
+                    $detailStr = implode('、', $matchedDetails);
+                    $tip = "【形态达标】当前方案符合黄金规律！前区在 5-9 遗漏值区间的号码共 {$matchCount} 个（标准要求 1~3 个）。涉及号码：{$detailStr}。";
+                    $isStandard = true;
+                } else {
+                    if ($matchCount == 0) {
+                        $tip = "【形态异常提示】当前方案中，没有任何一个前区号码的遗漏值处于 5-9 的中开区间。历史大数据表明该区间最少应包含 1~3 个号码，建议补充以平衡整体形态。";
+                    } else {
+                        $detailStr = implode('、', $matchedDetails);
+                        // ✨ 修正：这里的提示文案同步改成 1~3 个标准
+                        $tip = "【形态异常提示】当前方案中，遗漏值在 5-9 之间的前区号码多达 {$matchCount} 个（涉及：{$detailStr}），超出了历史高频的 1~3 个标准。号码堆积过密，形态不够均衡。";
+                    }
+                    $isStandard = false;
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'match_count' => $matchCount,
+                    'is_standard' => $isStandard,
+                    'all_greater_than_two' => $allGreaterThanTwo, // ✨ 同步给前端对应的键名
+                    'tip' => $tip
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => '大乐透服务器演算遗漏值失败: ' . $e->getMessage()
             ], 500);
         }
     }

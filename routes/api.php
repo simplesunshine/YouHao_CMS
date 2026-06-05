@@ -95,6 +95,7 @@ Route::middleware(['auth:sanctum', 'update.last.login'])->group(function (){
     Route::get('/ssq/check-omission', [SsqController::class, 'checkOmission']); // 【新加】红球6-11遗漏值过滤形态接口
     
     Route::get('/dlt/score', [DltController::class, 'score']); // 大乐透评分详情
+    Route::get('/dlt/check-omission', [DltController::class, 'checkOmission']); // 【新加】红球5-9遗漏值过滤形态接口
 
     
     // SSQ 复式相关
