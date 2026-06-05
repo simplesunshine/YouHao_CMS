@@ -67,32 +67,32 @@ class DltController extends Controller
         $prefs = $request->input('prefs', []);
 
         $service = new DltLotteryFeatureService();
-        $results = collect();
         $query = BasicDlt::whereNull('user_id');
 
         // 3. 玩法逻辑分支
         switch ($type) {
             case 'normal':
-                $results = $query->inRandomOrder()->take($take)->get();
+                // 直接进入高性能随机池
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'first_advantage':
                 $firstAdvTop = Cache::remember('dlt_first_adv_top5', 60, function () {
-                    // 确保字段名为 front1
                     $issues = DB::table('dlt_lotto_history')->orderByDesc('id')->limit(80)->pluck('front1');
                     $map = [];
                     foreach ($issues as $num) { $map[(int)$num] = ($map[(int)$num] ?? 0) + 1; }
                     arsort($map);
                     return array_slice($map, 0, 5, true);
                 });
-                // 筛选前区第一位红球属于 Top5 的记录
-                $results = $query->whereIn('code1', array_keys($firstAdvTop))->inRandomOrder()->take($take)->get();
+                $query->whereIn('code1', array_keys($firstAdvTop));
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'connect':
                 $consecutive = (int)($prefs['serial'] ?? 0);
                 if ($consecutive <= 0) return response()->json(['success' => false, 'message' => '请选择连号个数'], 400);
-                $results = $query->where('consecutive_count', $consecutive)->inRandomOrder()->take($take)->get();
+                $query->where('consecutive_count', $consecutive);
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'dan_only':
@@ -103,19 +103,16 @@ class DltController extends Controller
                         $q->orWhere('code1', $num)->orWhere('code2', $num)->orWhere('code3', $num)->orWhere('code4', $num)->orWhere('code5', $num);
                     });
                 }
-                $results = $query->inRandomOrder()->take($take)->get();
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
-            // --- ⭐ 新增：包含近期和值逻辑 ---
             case 'include_sum':
-                // 获取前端传来的范围期数，默认 10 期
                 $includeCount = (int)$request->input('exclude', 10); 
-                // 获取最近 N 期的和值集合
                 $includeSums = DB::table('dlt_lotto_history')
                     ->orderByDesc('issue')
                     ->limit($includeCount)
                     ->pluck('sum')
-                    ->unique() // 去重，提高查询效率
+                    ->unique() 
                     ->toArray();
 
                 if (!empty($includeSums)) {
@@ -123,49 +120,41 @@ class DltController extends Controller
                 } else {
                     return response()->json(['success' => false, 'message' => '无法获取历史和值数据'], 400);
                 }
-                $results = $query->inRandomOrder()->take($take)->get();
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
                     
             case 'history_sum':
                 $excludeCount = (int)$request->input('exclude', 0);
                 $excludeSums = $excludeCount > 0 ? DB::table('dlt_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('sum')->toArray() : [];
                 if (!empty($excludeSums)) $query->whereNotIn('sum', $excludeSums);
-                $results = $query->inRandomOrder()->take($take)->get();
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'odd_even':
                 if (empty($prefs['odd_even'])) return response()->json(['success' => false, 'message' => '请选择奇偶比'], 400);
                 [$odd, $even] = explode(':', $prefs['odd_even']);
-                $results = $query->where('odd_count', (int)$odd)->where('even_count', (int)$even)->inRandomOrder()->take($take)->get();
+                $query->where('odd_count', (int)$odd)->where('even_count', (int)$even);
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'first_last':
                 if (!empty($prefs['first'])) $query->where('code1', $prefs['first']);
                 if (!empty($prefs['last'])) $query->where('code5', $prefs['last']);
-                $results = $query->inRandomOrder()->take($take)->get();
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
-            // --- ⭐ 新增：前区杀号强行剥离模块 ---
             case 'kill_pick':
-                // 1. 获取前端传入升序处理好的杀号池字符串 (例如: "02,20,33")
                 $killFrontStr = $prefs['kill_front'] ?? '';
-                
                 if (!empty($killFrontStr)) {
-                    // 2. 切割并转换为纯数字纯净数组
                     $killFrontArray = array_filter(explode(',', $killFrontStr), function($val) {
                         return $val !== '' && is_numeric($val);
                     });
                     $killFrontArray = array_map('intval', $killFrontArray);
 
-                    // 3. 健壮性业务熔断：若杀号超出 15 码，直接拦截，维护号段元空间稳定
                     if (count($killFrontArray) > 15) {
-                        return response()->json([
-                            'success' => false, 
-                            'message' => '前区杀号上限不可超过 15 码'
-                        ], 400);
+                        return response()->json(['success' => false, 'message' => '前区杀号上限不可超过 15 码'], 400);
                     }
 
-                    // 4. 矩阵式排查：确保基础池里 5 个红球位置（code1 到 code5）都不包含在杀号池中
                     if (!empty($killFrontArray)) {
                         $query->whereNotIn('code1', $killFrontArray)
                               ->whereNotIn('code2', $killFrontArray)
@@ -174,13 +163,11 @@ class DltController extends Controller
                               ->whereNotIn('code5', $killFrontArray);
                     }
                 }
-                
-                // 5. 执行云端清洗并随机调取满足过滤条件的方案
-                $results = $query->inRandomOrder()->take($take)->get();
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             default:
-                $results = $query->inRandomOrder()->take($take)->get();
+                $results = $this->fetchRandomlyWithQuery($query, $take);
         }
 
         if ($results->isEmpty()) {
@@ -189,21 +176,19 @@ class DltController extends Controller
 
         // 4. 构建返回数据
         $randomData = $results->map(fn($row) => $service->buildRow($row));
-
-        //或取当前期号
         $issue = $this->currentIssue();
 
-        // 5. ⭐ 自动保存到永久记录表 (包含期号修复逻辑)
+        // 5. 自动保存到永久记录表
         $records = [];
         foreach ($results as $row) {
             $records[] = [
                 'user_id'       => $user->id,
                 'lottery_type'  => 'dlt',
-                'is_fushi'      => 0, // 机选默认为单式
+                'is_fushi'      => 0, 
                 'issue'         => $issue,
                 'mode'          => $type,
-                'red_numbers'   => $row->front, // 前区
-                'blue_numbers'  => $row->back,  // 后区
+                'red_numbers'   => $row->front, 
+                'blue_numbers'  => $row->back,  
                 'red_dan'       => '',
                 'kill_numbers'  => '',
                 'ip'            => $ip,
@@ -213,18 +198,71 @@ class DltController extends Controller
         }
         DB::table('user_lotto_records')->insert($records);
 
-        // 标记推荐池记录
-        BasicDlt::whereIn('id', $results->pluck('id'))->update([
-            'user_id' => $user->id
-        ]);
+        // 6. 原子锁标记推荐池记录，拦截高并发抢占
+        $affected = BasicDlt::whereIn('id', $results->pluck('id'))
+            ->whereNull('user_id')
+            ->update([
+                'user_id' => $user->id
+            ]);
+
+        if ($affected !== $results->count()) {
+            // 在更新的瞬间被极速抢占，直接抛出异常保护数据独占性
+            return response()->json(['success' => false, 'message' => '选号已被并发抢占，请重试'], 409);
+        }
 
         return response()->json([
             'success' => true,
             'data'    => $randomData,
             'remain'  => $remaining - $results->count(),
-            // 修复点：添加这个判断，返回前端渲染 Top5 用的数据
             'first_advantage_top' => $firstAdvTop ?? null 
         ]);
+    }
+
+    /**
+     * 大乐透百万级大盘带条件高性能随机抽样器 (替代 inRandomOrder)
+     */
+    private function fetchRandomlyWithQuery($query, $take)
+    {
+        // 1. 缓存获取未分配的最大和最小 ID 边界
+        $bounds = Cache::remember('dlt_id_bounds_v2', 30, function() {
+            return [
+                'min' => BasicDlt::whereNull('user_id')->min('id') ?? 1,
+                'max' => BasicDlt::whereNull('user_id')->max('id') ?? 1
+            ];
+        });
+
+        $minId = $bounds['min'];
+        $maxId = $bounds['max'];
+        $range = $maxId - $minId;
+        $results = collect();
+
+        if ($range > 0) {
+            // 2. 扩大抽取池：放大到注数的 60 倍，保证覆盖分散且给杀号/胆码等留足过滤空间
+            $seedIds = [];
+            $totalNeed = $take * 60; 
+            for ($i = 0; $i < $totalNeed; $i++) {
+                $seedIds[] = mt_rand($minId, $maxId);
+            }
+            $seedIds = array_unique($seedIds);
+
+            // 3. 克隆主查询流，直接通过主键索引提取
+            $validRows = (clone $query)->whereIn('id', $seedIds)->get();
+
+            if ($validRows->isNotEmpty()) {
+                // 4. 内存打乱截取，彻底打散数据库默认的 ID 排序顺序
+                $results = $validRows->shuffle()->take($take);
+            }
+        }
+
+        // 5. 分级兜底：如果在锚点池中被各种 where 条件冲刷后不够 take 数量
+        if ($results->count() < $take) {
+            $needCount = $take - $results->count();
+            // 去掉 random，利用常规主键流快速切下剩余行，速度依旧是毫秒级
+            $extra = $query->limit($needCount)->get();
+            $results = $results->merge($extra);
+        }
+
+        return $results;
     }
 
     /**

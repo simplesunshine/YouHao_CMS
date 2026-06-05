@@ -126,6 +126,7 @@ class SsqController extends Controller
                     $results = $results->merge($extra);
                 }
                 break;
+
             case 'kill_pick':
                 $killFrontStr = $prefs['kill_front'] ?? '';
                 if (!empty($killFrontStr)) {
@@ -139,8 +140,10 @@ class SsqController extends Controller
                               ->whereNotIn('code6', $killFrontArray);
                     }
                 }
-                $results = $query->inRandomOrder()->take($take)->get();
+                // 【性能优化】复用高效随机抽样器
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;                
+
             case 'dan_only':
                 $dan = (array)($prefs['dan'] ?? []);
                 if (count($dan) < 1 || count($dan) > 5) {
@@ -152,12 +155,12 @@ class SsqController extends Controller
                           ->orWhere('code4', $num)->orWhere('code5', $num)->orWhere('code6', $num);
                     });
                 }
-                $results = $query->inRandomOrder()->take($take)->get();
+                // 【性能优化】复用高效随机抽样器
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
+
             case 'first_advantage':
-                // 1. 从缓存或数据库计算最近 80 期的首红分布
                 $firstCounts = Cache::remember('ssq_last80_first_counts', 60, function () {
-                    // 确保字段名与你数据库一致，这里使用的是 front1
                     return DB::table('ssq_lotto_history')
                         ->orderByDesc('id')
                         ->limit(80)
@@ -167,29 +170,25 @@ class SsqController extends Controller
                 });
 
                 arsort($firstCounts);
-                // 2. 截取前 5 名作为“优势排行”
                 $firstAdvTop = array_slice($firstCounts, 0, 5, true);
                 
-                // 3. 在推荐库中筛选第一位红球属于这 Top5 的号码
-                $results = $query->whereIn('code1', array_keys($firstAdvTop))
-                    ->inRandomOrder()
-                    ->take($take)
-                    ->get();
+                $query->whereIn('code1', array_keys($firstAdvTop));
+                // 【性能优化】复用高效随机抽样器
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'connect':
                 $consecutive = (int)($prefs['serial'] ?? 0);
                 if ($consecutive <= 0) return response()->json(['success' => false, 'message' => '请选择连号个数'], 400);
-                $results = $query->where('consecutive_count', $consecutive)->inRandomOrder()->take($take)->get();
+                
+                $query->where('consecutive_count', $consecutive);
+                // 【性能优化】复用高效随机抽样器
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
-            // --- ⭐ 新增：双色球包含近期和值逻辑 ---
             case 'include_sum':
-                // 获取前端传来的范围期数，对应前端的 pickerValue[0]
-                // 注意：前端传的参数名是 exclude (为了兼容老接口字段)，后端这里直接读取
                 $includeCount = (int)$request->input('exclude', 10); 
                 
-                // 从历史开奖表提取最近 N 期的和值作为“热点池”
                 $includeSums = DB::table('ssq_lotto_history')
                     ->orderByDesc('issue')
                     ->limit($includeCount)
@@ -198,37 +197,46 @@ class SsqController extends Controller
                     ->toArray();
 
                 if (!empty($includeSums)) {
-                    // 仅从基础库中筛选和值在“热点池”内的记录
                     $query->whereIn('sum', $includeSums);
                 } else {
                     return response()->json(['success' => false, 'message' => '无法提取历史和值特征'], 400);
                 }
-                $results = $query->inRandomOrder()->take($take)->get();
+                // 【性能优化】复用高效随机抽样器
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'history_sum':
                 $excludeCount = (int)$request->input('exclude', 0);
                 $excludeSums = $excludeCount > 0 ? DB::table('ssq_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('sum')->toArray() : [];
                 if (!empty($excludeSums)) $query->whereNotIn('sum', $excludeSums);
-                $results = $query->inRandomOrder()->take($take)->get();
+                
+                // 【性能优化】复用高效随机抽样器
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'history_span':
                 $exclude = (array)$request->input('exclude', []);
                 if (!empty($exclude)) $query->whereNotIn('span', $exclude);
-                $results = $query->inRandomOrder()->take($take)->get();
+                
+                // 【性能优化】复用高效随机抽样器
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'odd_even':
                 if (empty($prefs['odd_even'])) return response()->json(['success' => false, 'message' => '请选择奇偶比'], 400);
                 [$odd, $even] = explode(':', $prefs['odd_even']);
-                $results = $query->where('odd_count', (int)$odd)->where('even_count', (int)$even)->inRandomOrder()->take($take)->get();
+                
+                $query->where('odd_count', (int)$odd)->where('even_count', (int)$even);
+                // 【性能优化】复用高效随机抽样器
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             case 'first_last':
                 if (!empty($prefs['first'])) $query->where('code1', $prefs['first']);
                 if (!empty($prefs['last'])) $query->where('code6', $prefs['last']);
-                $results = $query->inRandomOrder()->take($take)->get();
+                
+                // 【性能优化】复用高效随机抽样器
+                $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
             default:
@@ -298,6 +306,53 @@ class SsqController extends Controller
     }
 
     /**
+     * 针对百万级带条件查询的高性能随机抽样器 (替代 inRandomOrder)
+     */
+    private function fetchRandomlyWithQuery($query, $take)
+    {
+        // 1. 获取未分配的最大和最小 ID（缓存30秒）
+        $bounds = Cache::remember('ssq_id_bounds_v2', 30, function() {
+            return [
+                'min' => BasicSsq::whereNull('user_id')->min('id') ?? 1,
+                'max' => BasicSsq::whereNull('user_id')->max('id') ?? 1
+            ];
+        });
+
+        $minId = $bounds['min'];
+        $maxId = $bounds['max'];
+        $range = $maxId - $minId;
+        $results = collect();
+
+        if ($range > 0) {
+            // 2. 扩大抽取池：由于带有业务过滤条件，将锚点数放大到 take 的 60 倍，提高命中概率
+            $seedIds = [];
+            $totalNeed = $take * 60; 
+            for ($i = 0; $i < $totalNeed; $i++) {
+                $seedIds[] = mt_rand($minId, $maxId);
+            }
+            $seedIds = array_unique($seedIds);
+
+            // 3. 克隆主查询流，加入随机 ID 集合进行主键索引快速扫描
+            $validRows = (clone $query)->whereIn('id', $seedIds)->get();
+
+            if ($validRows->isNotEmpty()) {
+                // 4. 内存打乱，截取目标注数
+                $results = $validRows->shuffle()->take($take);
+            }
+        }
+
+        // 5. 分级兜底：若经过复杂业务条件过滤后，大离散锚点池切出的数据不够
+        if ($results->count() < $take) {
+            $needCount = $take - $results->count();
+            // 此时由于没有使用 inRandomOrder()，而是通过主键或复合索引常规 limit 顺延下探，速度依旧是毫秒级
+            $extra = $query->limit($needCount)->get();
+            $results = $results->merge($extra);
+        }
+
+        return $results;
+    }
+
+    /**
      * 获取当前期号（缓存5分钟）
      */
     private function currentIssue()
@@ -362,7 +417,7 @@ class SsqController extends Controller
 
     private function getPosCounts()
     {
-        return Cache::remember('ssq_last80_pos_counts', 60, function () {
+        return Cache::remember('ssq_last80_pos_counts', 600, function () {
             $rows = DB::table('ssq_lotto_history')->orderByDesc('id')->limit(80)->select(['front1', 'front2', 'front3', 'front4', 'front5', 'front6'])->get();
             $counts = [];
             for ($i = 1; $i <= 6; $i++) $counts[$i] = [];
