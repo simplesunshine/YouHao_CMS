@@ -82,7 +82,49 @@ class SsqController extends Controller
         // 3. 匹配玩法逻辑
         switch ($type) {
             case 'normal':
-                $results = $query->inRandomOrder()->take($take)->get();
+                // 1. 获取未分配的最大和最小 ID（缓存30秒，降低IO）
+                $bounds = Cache::remember('ssq_id_bounds_v2', 30, function() {
+                    return [
+                        'min' => BasicSsq::whereNull('user_id')->min('id') ?? 1,
+                        'max' => BasicSsq::whereNull('user_id')->max('id') ?? 1
+                    ];
+                });
+
+                $minId = $bounds['min'];
+                $maxId = $bounds['max'];
+                $range = $maxId - $minId;
+
+                $results = collect();
+
+                if ($range > 0) {
+                    // 2. 扩大抽取池：为了拿 5 注，我们在百万大盘里随机轰炸 100 个不同的 ID 锚点
+                    $seedIds = [];
+                    $totalNeed = $take * 20; // 轰炸 100 个点，确保绝对离散
+                    for ($i = 0; $i < $totalNeed; $i++) {
+                        $seedIds[] = mt_rand($minId, $maxId);
+                    }
+                    $seedIds = array_unique($seedIds);
+
+                    // 3. 一次性进数据库精准过滤：必须是未被分配的，且利用 MySQL 底层索引快速筛选
+                    $validRows = BasicSsq::whereIn('id', $seedIds)
+                        ->whereNull('user_id')
+                        ->get();
+
+                    if ($validRows->isNotEmpty()) {
+                        // 4. 关键点：在内存中再次打乱结果集，彻底破坏 MySQL 默认的 ID 有序性
+                        $results = $validRows->shuffle()->take($take);
+                    }
+                }
+
+                // 5. 极端兜底：如果随机轰炸的 100 个点刚好都撞到了空洞或已被选走，导致数量不够
+                if ($results->count() < $take) {
+                    $needCount = $take - $results->count();
+                    // 此时使用轻量级的 limit 补齐，因为有上面的 shuffle，整体依然保持极高离散度
+                    $extra = BasicSsq::whereNull('user_id')
+                        ->limit($needCount)
+                        ->get();
+                    $results = $results->merge($extra);
+                }
                 break;
             case 'kill_pick':
                 $killFrontStr = $prefs['kill_front'] ?? '';
