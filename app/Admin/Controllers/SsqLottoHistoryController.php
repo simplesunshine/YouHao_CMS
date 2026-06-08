@@ -229,6 +229,44 @@ class SsqLottoHistoryController extends AdminController
                 $updatePayload['red_ball_omission'] = json_encode($ballOmission, JSON_UNESCAPED_UNICODE);
 
                 DB::table('ssq_lotto_history')->where('id', $currentId)->update($updatePayload);
+
+                // =================================================================
+                // 3. 【新增逻辑】开奖后与系统预设杀号进行比对，统计对错
+                // =================================================================
+                // 查找该期号在系统里有没有预设的杀号记录
+                $killRecord = DB::table('lottery_kill_histories')
+                    ->where('lottery_type', 'ssq')
+                    ->where('period', $data->issue) // $data->issue 是你刚保存的开奖期号
+                    ->first();
+
+                if ($killRecord) {
+                    // 解析系统当初预判要杀掉的号码
+                    $killRed  = json_decode($killRecord->kill_red_balls, true) ?? [];
+                    $killBlue = json_decode($killRecord->kill_blue_balls, true) ?? [];
+
+                    // 拿到当前真实的开奖号码（全部转整型方便比对）
+                    $openRed = array_map('intval', explode(',', $data->front)); // 6个红球
+                    $openBlue = [(int)$data->back]; // 1个蓝球
+
+                    // 计算交集：如果预判杀掉的号码出现在开奖号码里，说明“杀错了”（翻车翻出来了）
+                    $wrongRed  = array_values(array_intersect($killRed, $openRed));
+                    $wrongBlue = array_values(array_intersect($killBlue, $openBlue));
+
+                    // 状态判定：如果杀错的红球和蓝球全部为空，说明预测全对（状态1），否则有杀错（状态2）
+                    $status = empty($wrongRed) ? 1 : 2;
+
+                    // 回写到杀号历史表
+                    DB::table('lottery_kill_histories')
+                        ->where('id', $killRecord->id)
+                        ->update([
+                            'open_red_balls'        => json_encode($openRed),
+                            'open_blue_balls'       => json_encode($openBlue),
+                            'status'                => $status,
+                            'wrong_kill_red_balls'  => json_encode($wrongRed),
+                            'wrong_kill_blue_balls' => json_encode($wrongBlue),
+                            'updated_at'            => now()
+                        ]);
+                }
             });
         });
     }

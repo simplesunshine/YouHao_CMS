@@ -18,7 +18,7 @@ class SsqController extends Controller
     protected $ssqService;
         
     // 构造函数注入 Service
-    public function __construct(SsqService $ssqService)
+    public function __construct(SsqService $ssqService = null)
     {
         $this->ssqService = $ssqService;
     }

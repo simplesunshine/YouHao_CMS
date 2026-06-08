@@ -458,7 +458,7 @@ class DltController extends Controller
             // 如果最近两期在同一个区间，且当前号也在同一个区间
             if ($lastSegment === $preSegment && $currentSegment === $lastSegment) {
                 $baseScore -= 80;
-                $reasons[] = "号码连续落在一个区间（区间{$currentSegment}），评分下降。";
+                $reasons[] = "号码连续落在一个ID区间（区间{$currentSegment}），评分下降。";
             }
         }
 

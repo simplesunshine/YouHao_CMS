@@ -227,6 +227,44 @@ class DltLottoHistoryController extends AdminController
 
                 // 统一更新
                 DB::table('dlt_lotto_history')->where('id', $currentId)->update($updatePayload);
+
+                // =================================================================
+                // 3. 【大乐透新增逻辑】开奖后与系统预设杀号进行比对，统计对错
+                // =================================================================
+                // 查找大乐透该期号在系统里有没有预设的杀号记录
+                $killRecord = DB::table('lottery_kill_histories')
+                    ->where('lottery_type', 'dlt')
+                    ->where('period', $data->issue) // $data->issue 是当前保存的大乐透开奖期号
+                    ->first();
+
+                if ($killRecord) {
+                    // 解析系统当初预判要杀掉的号码
+                    $killRed  = json_decode($killRecord->kill_red_balls, true) ?? [];
+                    $killBlue = json_decode($killRecord->kill_blue_balls, true) ?? [];
+
+                    // 拿到当前真实的开奖号码（前区5个，后区2个，全部转整型方便比对）
+                    $openRed  = array_map('intval', explode(',', $data->front)); 
+                    $openBlue = [(int)$data->back1, (int)$data->back2]; // 大乐透后区包含两个蓝球
+
+                    // 计算交集：如果预测杀掉的号码出现在真实开奖号码里，说明杀错了（翻车了）
+                    $wrongRed  = array_values(array_intersect($killRed, $openRed));
+                    $wrongBlue = array_values(array_intersect($killBlue, $openBlue));
+
+                    // 状态判定：如果杀错的前区和后区全部为空，说明预测全对（状态1），否则有杀错（状态2）
+                    $status = empty($wrongRed) ? 1 : 2;
+
+                    // 回写到杀号历史表
+                    DB::table('lottery_kill_histories')
+                        ->where('id', $killRecord->id)
+                        ->update([
+                            'open_red_balls'        => json_encode($openRed),
+                            'open_blue_balls'       => json_encode($openBlue),
+                            'status'                => $status,
+                            'wrong_kill_red_balls'  => json_encode($wrongRed),
+                            'wrong_kill_blue_balls' => json_encode($wrongBlue),
+                            'updated_at'            => now()
+                        ]);
+                }
             });
         });
     }

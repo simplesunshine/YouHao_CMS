@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\DltFushiController;
 use App\Http\Controllers\Api\LottoRecordController;
 use App\Http\Controllers\Api\LotteryStrategyController;
 use App\Http\Controllers\Api\DltReLiTuController;
+use App\Http\Controllers\Api\KillHistoryController;
+
 
 
 /*
@@ -71,6 +73,15 @@ Route::get('/ssq/hot_number', [SsqController::class, 'hotNumber']);
 Route::get('/dlt/hot_number', [DltController::class, 'hotNumber']);
 
 Route::get('/dlt/relitu', [DltReLiTuController::class, 'index']);
+
+// =================================================================
+// 【新增】系统自动杀号历史战绩与统计看板接口
+// =================================================================
+// 1. 获取杀号战绩的顶部统计看板数据（累计期数、准确率、当前连对）
+Route::get('/kill-history/stats', [KillHistoryController::class, 'getKillStats']);
+
+// 2. 获取杀号逐期对错的分页历史列表
+Route::get('/kill-history/list', [KillHistoryController::class, 'getKillList']);
 
 
 
