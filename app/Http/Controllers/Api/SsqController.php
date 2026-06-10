@@ -376,51 +376,67 @@ class SsqController extends Controller
 
     }
 
-    /**
-     * 针对百万级带条件查询的高性能随机抽样器 (替代 inRandomOrder)
+        /**
+     * 针对百万级带条件查询的高性能随机抽样器 (彻底根治杀号、加条件后号码“连体、挨着”的顽疾)
      */
     private function fetchRandomlyWithQuery($query, $take)
     {
-        // 1. 获取未分配的最大和最小 ID（缓存30秒）
-        $bounds = Cache::remember('ssq_id_bounds_v2', 30, function() {
-            return [
-                'min' => BasicSsq::whereNull('user_id')->min('id') ?? 1,
-                'max' => BasicSsq::whereNull('user_id')->max('id') ?? 1
-            ];
-        });
+        // 1. 先查出在大盘中，符合你前端这一堆过滤条件的总注数有多少（走索引 count，毫秒级响应）
+        $totalMatching = (clone $query)->count();
 
-        $minId = $bounds['min'];
-        $maxId = $bounds['max'];
-        $range = $maxId - $minId;
-        $results = collect();
+        // 如果连一注符合条件的号都没有，直接回空集
+        if ($totalMatching === 0) {
+            return collect();
+        }
 
-        if ($range > 0) {
-            // 2. 扩大抽取池：由于带有业务过滤条件，将锚点数放大到 take 的 60 倍，提高命中概率
-            $seedIds = [];
-            $totalNeed = $take * 60; 
-            for ($i = 0; $i < $totalNeed; $i++) {
-                $seedIds[] = mt_rand($minId, $maxId);
+        // 2. 设定我们要捞出来的备选池大小（放宽到 150 条出来提供足够的号码离散度）
+        $bufferSize = 150;
+
+        // 3. 【核心黑魔法】：计算物理层动态偏移量
+        // 如果总共有 5000 条符合条件的组合，我们随机跳过前面的 N 条，防止 MySQL 每次都从同一个死胡同开始抓连体号
+        $maxOffset = max(0, $totalMatching - $bufferSize);
+        $randomOffset = mt_rand(0, $maxOffset);
+
+        // 4. 让 MySQL 去随机的物理深度刨出这 150 条数据
+        // 这样捞出来的备选池，每次点击时在数据库中的 ID 区间都天差地别，号码特征天然错开！
+        $shuffledPool = $query->skip($randomOffset)
+                             ->limit($bufferSize)
+                             ->get();
+
+        // 5. 拿到内存里再次执行乱序洗牌，并切出前端需要的 5 注
+        $finalSelected = $shuffledPool->shuffle()->take($take);
+
+        // 6. 动态查漏去粘拦截（双重保险：防止用户设定的组合空间本身就极小导致又撞衫）
+        if ($finalSelected->count() >= $take) {
+            $deduplicated = collect();
+            foreach ($finalSelected as $row) {
+                // 双色球模型的红球字段：code1 ~ code6
+                $currentBalls = [(int)$row->code1, (int)$row->code2, (int)$row->code3, (int)$row->code4, (int)$row->code5, (int)$row->code6];
+                $tooSimilar = false;
+                
+                foreach ($deduplicated as $selectedRow) {
+                    $selectedBalls = [(int)$selectedRow->code1, (int)$selectedRow->code2, (int)$selectedRow->code3, (int)$selectedRow->code4, (int)$selectedRow->code5, (int)$selectedRow->code6];
+                    // 🚨 拦截极其相似的亲兄弟：如果跟已选中的号码红球重合数大于等于 4 个，一票否决
+                    if (count(array_intersect($currentBalls, $selectedBalls)) >= 4) {
+                        $tooSimilar = true;
+                        break;
+                    }
+                }
+                
+                if (!$tooSimilar) {
+                    $deduplicated->push($row);
+                }
+                if ($deduplicated->count() >= $take) break;
             }
-            $seedIds = array_unique($seedIds);
-
-            // 3. 克隆主查询流，加入随机 ID 集合进行主键索引快速扫描
-            $validRows = (clone $query)->whereIn('id', $seedIds)->get();
-
-            if ($validRows->isNotEmpty()) {
-                // 4. 内存打乱，截取目标注数
-                $results = $validRows->shuffle()->take($take);
+            
+            // 如果去粘过滤后数量凑够了 5 注，就用去粘后的完美版本
+            if ($deduplicated->count() == $take) {
+                return $deduplicated;
             }
         }
 
-        // 5. 分级兜底：若经过复杂业务条件过滤后，大离散锚点池切出的数据不够
-        if ($results->count() < $take) {
-            $needCount = $take - $results->count();
-            // 此时由于没有使用 inRandomOrder()，而是通过主键或复合索引常规 limit 顺延下探，速度依旧是毫秒级
-            $extra = $query->limit($needCount)->get();
-            $results = $results->merge($extra);
-        }
-
-        return $results;
+        // 备用：若条件卡得极端严苛导致去粘失败，有多少吐多少，至少保证能出号
+        return $finalSelected;
     }
 
     /**
