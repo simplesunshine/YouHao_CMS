@@ -238,6 +238,77 @@ class SsqController extends Controller
                 // 【性能优化】复用高效随机抽样器
                 $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
+            // ==================== 🔥 新增：精细化动态条件选号玩法 ====================
+            case 'advanced_filter':
+                // 1. 各位置红球范围过滤 (P1 ~ P6)
+                // 数据库字段通常是 code1 ~ code6 或根据你的实际字段调整
+                for ($i = 1; $i <= 6; $i++) {
+                    $pKey = "p{$i}";
+                    if ($request->has($pKey) && is_array($request->input($pKey)) && !empty($request->input($pKey))) {
+                        $query->whereIn("code{$i}", $request->input($pKey));
+                    }
+                }
+
+                // 2. 全局可视化杀号过滤
+                if ($request->has('killNums') && is_array($request->input('killNums')) && !empty($request->input('killNums'))) {
+                    $killNums = array_map('intval', $request->input('killNums'));
+                    $query->whereNotIn('code1', $killNums)
+                          ->whereNotIn('code2', $killNums)
+                          ->whereNotIn('code3', $killNums)
+                          ->whereNotIn('code4', $killNums)
+                          ->whereNotIn('code5', $killNums)
+                          ->whereNotIn('code6', $killNums);
+                }
+
+                // 3. 各位置奇偶形态过滤 (通过余数模型进行按需拦截)
+                if ($request->has('parityMode') && is_array($request->input('parityMode'))) {
+                    $parityMode = $request->input('parityMode');
+                    for ($i = 1; $i <= 6; $i++) {
+                        if (isset($parityMode["p{$i}"])) {
+                            $mode = $parityMode["p{$i}"];
+                            if ($mode === 'even') {
+                                // 必须为偶数
+                                $query->whereRaw("code{$i} % 2 = 0");
+                            } elseif ($mode === 'odd') {
+                                // 必须为奇数
+                                $query->whereRaw("code{$i} % 2 != 0");
+                            }
+                        }
+                    }
+                }
+
+                // 4. 第一、二位组合奇偶拦截
+                if ($request->boolean('noDoubleEven')) {
+                    // 不能同时为偶数：意思是 (code1不是偶数) 或者 (code2不是偶数)
+                    $query->where(function($q) {
+                        $q->whereRaw("code1 % 2 != 0")
+                        ->orWhereRaw("code2 % 2 != 0");
+                    });
+                }
+
+                if ($request->boolean('noDoubleOdd')) {
+                    // 不能同时为奇数：意思是 (code1不是奇数) 或者 (code2不是奇数)
+                    $query->where(function($q) {
+                        $q->whereRaw("code1 % 2 = 0")
+                        ->orWhereRaw("code2 % 2 = 0");
+                    });
+                }
+
+                // 5. 连号过滤模式 (复用你表里的 consecutive_count 字段)
+                if ($request->has('consecutiveMode')) {
+                    $cMode = $request->input('consecutiveMode');
+                    if ($cMode === 'must') {
+                        // 必须有连号
+                        $query->where('consecutive_count', '>=', 1);
+                    } elseif ($cMode === 'none') {
+                        // 必须无连号
+                        $query->where('consecutive_count', 0);
+                    }
+                }
+
+                // 6. 调用你写好的高性能随机抽样器在大盘中快速切出 5 注
+                $results = $this->fetchRandomlyWithQuery($query, $take);
+                break;
 
             default:
                 return response()->json(['success' => false, 'message' => '未知机选类型'], 400);

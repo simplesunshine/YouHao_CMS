@@ -142,7 +142,7 @@ class DltController extends Controller
                 if (!empty($prefs['last'])) $query->where('code5', $prefs['last']);
                 $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
-
+            // ==================== 【新增】大乐透精细化定位置过滤逻辑 ====================
             case 'kill_pick':
                 $killFrontStr = $prefs['kill_front'] ?? '';
                 if (!empty($killFrontStr)) {
@@ -163,6 +163,70 @@ class DltController extends Controller
                               ->whereNotIn('code5', $killFrontArray);
                     }
                 }
+                $results = $this->fetchRandomlyWithQuery($query, $take);
+                break;
+                case 'advanced_filter':
+                // ==================== 【新增】大乐透精细化定位置过滤逻辑 ====================
+                
+                // 1. P1 ~ P5 定位置选号池过滤
+                for ($i = 1; $i <= 5; $i++) {
+                    $posKey = "p{$i}";
+                    if ($request->has($posKey) && is_array($request->input($posKey)) && !empty($request->input($posKey))) {
+                        // 字段对应 basic_dlt 表中的 code1 ~ code5
+                        $query->whereIn("code{$i}", array_map('intval', $request->input($posKey)));
+                    }
+                }
+
+                // 2. 奇偶形态断言过滤 (P1 ~ P5 分别控限制)
+                if ($request->has('parityMode') && is_array($request->input('parityMode'))) {
+                    $parityMode = $request->input('parityMode');
+                    for ($i = 1; $i <= 5; $i++) {
+                        $posKey = "p{$i}";
+                        if (isset($parityMode[$posKey]) && $parityMode[$posKey] !== 'ignore') {
+                            if ($parityMode[$posKey] === 'even') {
+                                // 必须为偶数：对 2 取模等于 0
+                                $query->whereRaw("code{$i} % 2 = 0");
+                            } elseif ($parityMode[$posKey] === 'odd') {
+                                // 必须为奇数：对 2 取模不等于 0
+                                $query->whereRaw("code{$i} % 2 != 0");
+                            }
+                        }
+                    }
+                }
+
+                // 3. 前区连号模式过滤 (基于 basic_dlt 表的 consecutive_count 字段)
+                if ($request->has('consecutiveMode')) {
+                    $cMode = $request->input('consecutiveMode');
+                    if ($cMode === 'must') {
+                        // 必须有连号：连号数大于等于 1 (即至少有一组二连号)
+                        $query->where('consecutive_count', '>=', 1);
+                    } elseif ($cMode === 'none') {
+                        // 必须无连号：连号数等于 0
+                        $query->where('consecutive_count', 0);
+                    }
+                }
+
+                // 4. 前区第一、二位同奇同偶断言拦截
+                if ($request->input('noDoubleEven') === true) {
+                    // 不能同时为偶数：排除 (code1是偶 且 code2是偶) 的情况
+                    $query->whereRaw("NOT (code1 % 2 = 0 AND code2 % 2 = 0)");
+                }
+                if ($request->input('noDoubleOdd') === true) {
+                    // 不能同时为奇数：排除 (code1是奇 且 code2是奇) 的情况
+                    $query->whereRaw("NOT (code1 % 2 != 0 AND code2 % 2 != 0)");
+                }
+
+                // 5. 全局可视化杀红区过滤
+                if ($request->has('killFront') && is_array($request->input('killFront')) && !empty($request->input('killFront'))) {
+                    $killFrontArray = array_map('intval', $request->input('killFront'));
+                    $query->whereNotIn('code1', $killFrontArray)
+                          ->whereNotIn('code2', $killFrontArray)
+                          ->whereNotIn('code3', $killFrontArray)
+                          ->whereNotIn('code4', $killFrontArray)
+                          ->whereNotIn('code5', $killFrontArray);
+                }
+
+                // 走大盘高性能随机抽样
                 $results = $this->fetchRandomlyWithQuery($query, $take);
                 break;
 
