@@ -732,15 +732,24 @@ class SsqController extends Controller
             }
         }
 
-        // --- 核心逻辑 E：【新增】历史重号空缺检测 ---
+                // --- 核心逻辑 E：【修复】历史重号空缺与当前选号联动拦截 ---
         $historyDups = $recentHistory->pluck('duplicate_count')->toArray();
+        
+        // 只有当大盘历史近 2 期或 3 期的重号个数都为 0 时，才触发大盘趋势预警
         if (count($historyDups) >= 2 && (int)$historyDups[0] === 0 && (int)$historyDups[1] === 0) {
-            if (count($historyDups) >= 3 && (int)$historyDups[2] === 0) {
-                $baseScore -= 50;
-                $reasons[] = "重号极端空缺：历史近3期重号个数均为0，本期重号喷发概率极高，当前组合需慎重。";
+            
+            // 🚨 联动点：如果大盘重号空缺，但用户当前组合“及时补充了重号”（$currentDupCount > 0），则属于顺应走势，不予扣分！
+            if ($currentDupCount === 0) {
+                if (count($historyDups) >= 3 && (int)$historyDups[2] === 0) {
+                    $baseScore -= 50;
+                    $reasons[] = "重号极端空缺：历史近3期开奖重号个数均为0，本期重号反弹喷发概率极高！当前组合却未包含任何上期重号，需慎重。";
+                } else {
+                    $baseScore -= 20;
+                    $reasons[] = "重号空缺警告：大盘近2期均未出现重号，本期重号反弹迹象明显，当前组合未现重号防线。";
+                }
             } else {
-                $baseScore -= 20;
-                $reasons[] = "重号空缺警告：近2期均未出现重号，重号反弹迹象明显。";
+                // 【精细化运营】如果大盘空缺，而用户刚好选了重号（比如你中了30），不仅不扣分，还给个正面评语
+                $reasons[] = "重号反弹捕获：大盘近2期重号空缺，当前组合适时切入上期重号，符合走势反弹规律。";
             }
         }
 
