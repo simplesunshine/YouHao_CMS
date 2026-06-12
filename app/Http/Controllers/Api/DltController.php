@@ -283,7 +283,11 @@ class DltController extends Controller
     }
 
     /**
-     * 大乐透百万级大盘带条件高性能随机抽样器 (替代 inRandomOrder)
+     * 大乐透百万级大盘带条件高性能随机抽样器
+     * 结合了 ID 锚点轰炸与动态 Offset 兜底
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @param int $take 抽取数量
+     * @return \Illuminate\Support\Collection
      */
     private function fetchRandomlyWithQuery($query, $take)
     {
@@ -298,35 +302,57 @@ class DltController extends Controller
         $minId = $bounds['min'];
         $maxId = $bounds['max'];
         $range = $maxId - $minId;
-        $results = collect();
 
-        if ($range > 0) {
-            // 2. 扩大抽取池：放大到注数的 60 倍，保证覆盖分散且给杀号/胆码等留足过滤空间
-            $seedIds = [];
-            $totalNeed = $take * 60; 
-            for ($i = 0; $i < $totalNeed; $i++) {
-                $seedIds[] = mt_rand($minId, $maxId);
-            }
-            $seedIds = array_unique($seedIds);
-
-            // 3. 克隆主查询流，直接通过主键索引提取
-            $validRows = (clone $query)->whereIn('id', $seedIds)->get();
-
-            if ($validRows->isNotEmpty()) {
-                // 4. 内存打乱截取，彻底打散数据库默认的 ID 排序顺序
-                $results = $validRows->shuffle()->take($take);
-            }
+        if ($range <= 0) {
+            return collect();
         }
 
-        // 5. 分级兜底：如果在锚点池中被各种 where 条件冲刷后不够 take 数量
-        if ($results->count() < $take) {
-            $needCount = $take - $results->count();
-            // 去掉 random，利用常规主键流快速切下剩余行，速度依旧是毫秒级
-            $extra = $query->limit($needCount)->get();
-            $results = $results->merge($extra);
+        // 2. 放大轰炸基数
+        // 放大到 400 倍撒网，保证在各种杀号、胆码、奇偶过滤后，依然有极高的命中率
+        $seedIds = [];
+        $totalNeed = $take * 400; 
+        for ($i = 0; $i < $totalNeed; $i++) {
+            $seedIds[] = mt_rand($minId, $maxId);
+        }
+        $seedIds = array_unique($seedIds);
+
+        // 3. 将随机 ID 锚点注入到条件查询中
+        $bombQuery = (clone $query)->whereIn('id', $seedIds);
+        $results = $bombQuery->get();
+
+        // 4. 如果轰炸命中的有效数据满足需求，打乱后直接截取返回
+        if ($results->count() >= $take) {
+            return $results->shuffle()->take($take);
         }
 
-        return $results;
+        // ==========================================
+        // 5. 极端条件兜底逻辑 (彻底修复固定结果问题)
+        // ==========================================
+        // 当条件极其苛刻（如全奇、全大、且包含特定杀号）导致全盘只剩极少数据时，
+        // 锚点轰炸可能落空。此时放弃轰炸，启动 Count + 随机 Offset 模式。
+        
+        $fallbackQuery = clone $query;
+        $totalValid = $fallbackQuery->count();
+
+        // 如果该条件下连一注合法组合都没有，直接返回空
+        if ($totalValid == 0) {
+            return collect(); 
+        }
+
+        // 计算最大可偏移量，防止越界
+        $limit = min($take, $totalValid);
+        $maxOffset = max(0, $totalValid - $limit);
+        
+        // 随机切入一个起点，获取连贯但起始位置随机的数据块
+        $randomOffset = mt_rand(0, $maxOffset);
+        
+        $fallbackResults = (clone $query)
+            ->offset($randomOffset)
+            ->limit($limit)
+            ->get();
+
+        // 再次打乱，彻底破坏数据的连续性和主键顺序感
+        return $fallbackResults->shuffle();
     }
 
     /**

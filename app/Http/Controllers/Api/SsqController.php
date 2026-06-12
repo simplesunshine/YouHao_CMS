@@ -376,67 +376,78 @@ class SsqController extends Controller
 
     }
 
-        /**
-     * 针对百万级带条件查询的高性能随机抽样器 (彻底根治杀号、加条件后号码“连体、挨着”的顽疾)
+    /**
+     * 高性能全局随机抽样（百万级表、高并发专用）
+     * 结合了 ID 锚点轰炸与动态 Offset 兜底
+     * * @param \Illuminate\Database\Eloquent\Builder $query
+     * @param int $take 抽取数量
+     * @return \Illuminate\Support\Collection
      */
     private function fetchRandomlyWithQuery($query, $take)
     {
-        // 1. 先查出在大盘中，符合你前端这一堆过滤条件的总注数有多少（走索引 count，毫秒级响应）
-        $totalMatching = (clone $query)->count();
+        // 1. 获取大盘的极值 ID（利用缓存降低 IO）
+        $bounds = Cache::remember('ssq_id_bounds_v2', 30, function() {
+            return [
+                'min' => BasicSsq::whereNull('user_id')->min('id') ?? 1,
+                'max' => BasicSsq::whereNull('user_id')->max('id') ?? 1
+            ];
+        });
 
-        // 如果连一注符合条件的号都没有，直接回空集
-        if ($totalMatching === 0) {
+        $minId = $bounds['min'];
+        $maxId = $bounds['max'];
+        $range = $maxId - $minId;
+
+        if ($range <= 0) {
             return collect();
         }
 
-        // 2. 设定我们要捞出来的备选池大小（放宽到 150 条出来提供足够的号码离散度）
-        $bufferSize = 150;
+        // 2. 放大轰炸基数
+        // 既然有各种附加条件，命中率会降低。我们撒网 2000 个随机点，确保在被条件过滤后，依然能剩下足够的注数
+        $seedIds = [];
+        $totalNeed = $take * 400; 
+        for ($i = 0; $i < $totalNeed; $i++) {
+            $seedIds[] = mt_rand($minId, $maxId);
+        }
+        $seedIds = array_unique($seedIds);
 
-        // 3. 【核心黑魔法】：计算物理层动态偏移量
-        // 如果总共有 5000 条符合条件的组合，我们随机跳过前面的 N 条，防止 MySQL 每次都从同一个死胡同开始抓连体号
-        $maxOffset = max(0, $totalMatching - $bufferSize);
-        $randomOffset = mt_rand(0, $maxOffset);
+        // 3. 将随机 ID 锚点注入到前端传来的条件查询中
+        $bombQuery = (clone $query)->whereIn('id', $seedIds);
+        $results = $bombQuery->get();
 
-        // 4. 让 MySQL 去随机的物理深度刨出这 150 条数据
-        // 这样捞出来的备选池，每次点击时在数据库中的 ID 区间都天差地别，号码特征天然错开！
-        $shuffledPool = $query->skip($randomOffset)
-                             ->limit($bufferSize)
-                             ->get();
-
-        // 5. 拿到内存里再次执行乱序洗牌，并切出前端需要的 5 注
-        $finalSelected = $shuffledPool->shuffle()->take($take);
-
-        // 6. 动态查漏去粘拦截（双重保险：防止用户设定的组合空间本身就极小导致又撞衫）
-        if ($finalSelected->count() >= $take) {
-            $deduplicated = collect();
-            foreach ($finalSelected as $row) {
-                // 双色球模型的红球字段：code1 ~ code6
-                $currentBalls = [(int)$row->code1, (int)$row->code2, (int)$row->code3, (int)$row->code4, (int)$row->code5, (int)$row->code6];
-                $tooSimilar = false;
-                
-                foreach ($deduplicated as $selectedRow) {
-                    $selectedBalls = [(int)$selectedRow->code1, (int)$selectedRow->code2, (int)$selectedRow->code3, (int)$selectedRow->code4, (int)$selectedRow->code5, (int)$selectedRow->code6];
-                    // 🚨 拦截极其相似的亲兄弟：如果跟已选中的号码红球重合数大于等于 4 个，一票否决
-                    if (count(array_intersect($currentBalls, $selectedBalls)) >= 4) {
-                        $tooSimilar = true;
-                        break;
-                    }
-                }
-                
-                if (!$tooSimilar) {
-                    $deduplicated->push($row);
-                }
-                if ($deduplicated->count() >= $take) break;
-            }
-            
-            // 如果去粘过滤后数量凑够了 5 注，就用去粘后的完美版本
-            if ($deduplicated->count() == $take) {
-                return $deduplicated;
-            }
+        // 4. 如果轰炸命中的有效数据满足需求，打乱后直接返回
+        if ($results->count() >= $take) {
+            return $results->shuffle()->take($take);
         }
 
-        // 备用：若条件卡得极端严苛导致去粘失败，有多少吐多少，至少保证能出号
-        return $finalSelected;
+        // ==========================================
+        // 5. 极端条件兜底逻辑 (非常重要)
+        // ==========================================
+        // 如果用户选择了极其苛刻的条件（例如：胆码选了5个，或者只要全偶数），
+        // 此时全库可能只剩下不到 50 注。那 2000 个随机锚点极有可能一个都砸不中。
+        // 这时必须放弃轰炸，改用 Count + 随机 Offset 的方式进行安全抽取。
+        
+        $fallbackQuery = clone $query;
+        $totalValid = $fallbackQuery->count();
+
+        // 如果该条件下连一注都没有，直接返回空
+        if ($totalValid == 0) {
+            return collect(); 
+        }
+
+        // 计算最大可偏移量，防止越界
+        $limit = min($take, $totalValid);
+        $maxOffset = max(0, $totalValid - $limit);
+        
+        // 随机切入一个起点，获取数据
+        $randomOffset = mt_rand(0, $maxOffset);
+        
+        $fallbackResults = (clone $query)
+            ->offset($randomOffset)
+            ->limit($limit)
+            ->get();
+
+        // 再次打乱，彻底破坏默认的顺序感
+        return $fallbackResults->shuffle();
     }
 
     /**
