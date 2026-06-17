@@ -51,7 +51,7 @@ class DltController extends Controller
             ->whereDate('created_at', now()->toDateString())
             ->count();
             
-        $maxPerUser = 500;
+        $maxPerUser = 10000;
         $remaining = $maxPerUser - $count;
 
         if ($remaining <= 0) {
