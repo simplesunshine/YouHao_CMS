@@ -22,6 +22,19 @@ class LotterySettingController extends AdminController
                 2 => 'primary'
             ]);
             $grid->column('issue', '期号');
+            // 新增：在列表页展示最热/最冷50期同轨迹号码
+            $grid->column('top_nums_50', '最热10码')->display(function ($v) {
+                if (empty($v)) return '暂无';
+                $arr = json_decode($v, true);
+                // 使用 implode 将数组转为 "01, 05, 12..." 格式，并用 Dcat 的 label 包装
+                return count($arr) > 0 ? '<code>' . implode(', ', $arr) . '</code>' : '暂无';
+            });
+
+            $grid->column('bottom_nums_50', '最冷10码')->display(function ($v) {
+                if (empty($v)) return '暂无';
+                $arr = json_decode($v, true);
+                return count($arr) > 0 ? '<code>' . implode(', ', $arr) . '</code>' : '暂无';
+            });
             $grid->column('enabled', '启用状态')->switch();
             $grid->column('created_at', '创建时间')->display(function ($v) {
                 return date('Y-m-d H:i', strtotime($v));
