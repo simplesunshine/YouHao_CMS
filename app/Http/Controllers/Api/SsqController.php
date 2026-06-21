@@ -633,6 +633,222 @@ class SsqController extends Controller
      * 深度演算评分报告
      * 整合：热号、重号、极端重号、连号复刻、形态拦截、遗漏规避、历史重号走势、前三位奇偶拦截
      */
+    // public function score(Request $request)
+    // {
+    //     $id = $request->input('id');
+    //     if ($id) {
+    //         $row = DB::table('basic_ssq')->where('id', $id)->first();
+    //     } else {
+    //         $frontNumbers = $request->input('front_numbers');
+    //         $row = DB::table('basic_ssq')->where('front', $frontNumbers)->first();
+    //     }
+
+    //     // 2. 获取历史数据 (确保获取足够的数据进行比对)
+    //     $recentHistory = DB::table('ssq_lotto_history')->orderBy('id', 'desc')->limit(6)->get();
+    //     if ($recentHistory->isEmpty()) return response()->json(['success' => false, 'message' => '历史数据为空']);
+        
+    //     $latestHistory = $recentHistory->get(0); // 上期
+    //     $preHistory = $recentHistory->get(1);    // 上上期
+
+    //     // --- 基础数据准备 ---
+    //     $currentReds = [
+    //         (int)$row->code1, (int)$row->code2, (int)$row->code3, 
+    //         (int)$row->code4, (int)$row->code5, (int)$row->code6
+    //     ];
+    //     sort($currentReds); 
+
+    //     $lastReds = [
+    //         (int)$latestHistory->front1, (int)$latestHistory->front2, (int)$latestHistory->front3, 
+    //         (int)$latestHistory->front4, (int)$latestHistory->front5, (int)$latestHistory->front6
+    //     ];
+    //     sort($lastReds);
+
+    //     // --- 综合评分变量 ---
+    //     $reasons = [];
+    //     $baseScore = 95;
+
+    //     // --- 核心逻辑 A：计算近6期高频热号 ---
+    //     $allRecentReds = [];
+    //     foreach ($recentHistory as $h) {
+    //         $allRecentReds = array_merge($allRecentReds, [
+    //             (int)$h->front1, (int)$h->front2, (int)$h->front3, 
+    //             (int)$h->front4, (int)$h->front5, (int)$h->front6
+    //         ]);
+    //     }
+    //     $counts = array_count_values($allRecentReds);
+    //     $hotNumbers = array_keys(array_filter($counts, fn($v) => $v >= 2));
+    //     $hotIntersect = array_intersect($currentReds, $hotNumbers);
+
+    //     // --- 核心逻辑 B：重号（邻期重复）多维拦截 ---
+    //     $currentDuplicateWithLast = array_intersect($currentReds, $lastReds);
+    //     $currentDupCount = count($currentDuplicateWithLast);
+    //     $lastSelfDupCount = (int)$latestHistory->duplicate_count;
+
+    //     // --- 核心逻辑 C：连号复刻拦截 ---
+    //     $lastConsecutiveSets = [];
+    //     $tempSet = [$lastReds[0]];
+    //     for ($i = 1; $i < count($lastReds); $i++) {
+    //         if ($lastReds[$i] == $lastReds[$i - 1] + 1) {
+    //             $tempSet[] = $lastReds[$i];
+    //         } else {
+    //             if (count($tempSet) >= 2) $lastConsecutiveSets[] = $tempSet;
+    //             $tempSet = [$lastReds[$i]];
+    //         }
+    //     }
+    //     if (count($tempSet) >= 2) $lastConsecutiveSets[] = $tempSet;
+
+    //     foreach ($lastConsecutiveSets as $set) {
+    //         if (count(array_intersect($currentReds, $set)) === count($set)) {
+    //             $baseScore -= 60;
+    //             $setStr = implode('-', $set);
+    //             $reasons[] = "连号复刻警告：包含了与上期完全相同的连号组({$setStr})，此类形态连开概率极低。";
+    //             break; 
+    //         }
+    //     }
+
+    //     // --- 核心逻辑 D：遗漏最大值规避拦截 ---
+    //     $maxMissNums = json_decode($latestHistory->next_red_max_miss_json, true) ?: [];
+    //     if (!empty($maxMissNums)) {
+    //         $missIntersect = array_intersect($currentReds, $maxMissNums);
+    //         if (!empty($missIntersect)) {
+    //             $baseScore -= 5;
+    //             $missStr = implode(',', $missIntersect);
+    //             $reasons[] = "号码中包含历史遗漏最大值({$missStr})。";
+    //         }
+    //     }
+
+    //     // --- 【新增】核心逻辑 F：前三位奇偶形态拦截 ---
+    //     // 获取当前前三位奇偶性 (1为奇，0为偶)
+    //     $getCurrentParity = function($c1, $c2, $c3) {
+    //         return ($c1 % 2 === 0 ? '偶' : '奇') . ($c2 % 2 === 0 ? '偶' : '奇') . ($c3 % 2 === 0 ? '偶' : '奇');
+    //     };
+
+    //     $currentP = $getCurrentParity($currentReds[0], $currentReds[1], $currentReds[2]);
+    //     $lastP = $getCurrentParity($latestHistory->front1, $latestHistory->front2, $latestHistory->front3);
+        
+    //     if ($currentP === $lastP) {
+    //         // 进一步判断是否与上上期也一致
+    //         if ($preHistory) {
+    //             $preP = $getCurrentParity($preHistory->front1, $preHistory->front2, $preHistory->front3);
+    //             if ($currentP === $preP) {
+    //                 $baseScore -= 90;
+    //                 $reasons[] = "前三位奇偶形态({$currentP})已连续3期重复，极其罕见。";
+    //             } else {
+    //                 $baseScore -= 20;
+    //                 $reasons[] = "前三位奇偶形态({$currentP})与上期雷同。";
+    //             }
+    //         } else {
+    //             $baseScore -= 20;
+    //             $reasons[] = "前三位奇偶形态({$currentP})与上期雷同。";
+    //         }
+    //     }
+
+    //             // --- 核心逻辑 E：【修复】历史重号空缺与当前选号联动拦截 ---
+    //     $historyDups = $recentHistory->pluck('duplicate_count')->toArray();
+        
+    //     // 只有当大盘历史近 2 期或 3 期的重号个数都为 0 时，才触发大盘趋势预警
+    //     if (count($historyDups) >= 2 && (int)$historyDups[0] === 0 && (int)$historyDups[1] === 0) {
+            
+    //         // 🚨 联动点：如果大盘重号空缺，但用户当前组合“及时补充了重号”（$currentDupCount > 0），则属于顺应走势，不予扣分！
+    //         if ($currentDupCount === 0) {
+    //             if (count($historyDups) >= 3 && (int)$historyDups[2] === 0) {
+    //                 $baseScore -= 50;
+    //                 $reasons[] = "重号极端空缺：历史近3期开奖重号个数均为0，本期重号反弹喷发概率极高！当前组合却未包含任何上期重号，需慎重。";
+    //             } else {
+    //                 $baseScore -= 20;
+    //                 $reasons[] = "重号空缺警告：大盘近2期均未出现重号，本期重号反弹迹象明显，当前组合未现重号防线。";
+    //             }
+    //         } else {
+    //             // 【精细化运营】如果大盘空缺，而用户刚好选了重号（比如你中了30），不仅不扣分，还给个正面评语
+    //             $reasons[] = "重号反弹捕获：大盘近2期重号空缺，当前组合适时切入上期重号，符合走势反弹规律。";
+    //         }
+    //     }
+
+    //     // --- 3. 最高优先级：特殊全形态拦截 ---
+    //     if ($row->odd_count == 6) {
+    //         return response()->json(['success' => true, 'data' => ['weight' => 60, 'reason' => "全奇数形态，今年至今未出，可适当关注。"]]);
+    //     }
+    //     if ($row->even_count == 6 || $row->odd_count == 0) {
+    //         return response()->json(['success' => true, 'data' => ['weight' => 55, 'reason' => "全偶数形态，深度遗漏，存在反弹可能。"]]);
+    //     }
+
+    //     // --- 4. 核心扣分逻辑 ---
+
+    //     // [逻辑 1] 重号拦截与提醒
+    //     if ($currentDupCount === 0) {
+    //         $reasons[] = "下期遇重号概率提升，该组合未现重号。";
+    //     } else {
+    //         $isExtremeDup = ($currentDupCount >= 4);
+    //         $isInertiaDup = ($lastSelfDupCount > 2 && $currentDupCount > 2);
+    //         if ($isExtremeDup || $isInertiaDup) {
+    //             $baseScore -= 50;
+    //             $numsStr = implode(',', $currentDuplicateWithLast);
+    //             if ($isExtremeDup) {
+    //                 $reasons[] = "极端重号风险：与上期重复高达 {$currentDupCount} 个号码({$numsStr})。";
+    //             } else {
+    //                 $reasons[] = "重号惯性拦截：上期已出 {$lastSelfDupCount} 个重号，本组合重复数({$currentDupCount})过多({$numsStr})。";
+    //             }
+    //         }
+    //     }
+
+    //     // [逻辑 2] 热号连接分析
+    //     if (count($hotIntersect) === 0) {
+    //         $baseScore -= 30;
+    //         $reasons[] = "近6期高频热号在当前组合中完全缺席。";
+    //     }
+
+    //     // [逻辑 3] 区间比重复拦截
+    //     $currentZoneRatio = "{$row->zone1_count}:{$row->zone2_count}:{$row->zone3_count}";
+    //     if ($currentZoneRatio === $latestHistory->zone_ratio && (int)$latestHistory->continuous_zone_count >= 2) {
+    //         $baseScore -= 50;
+    //         $reasons[] = "区间比（{$currentZoneRatio}）已连续出现2期。";
+    //     }
+
+    //     // [逻辑 4] 和值个位拦截
+    //     $currentSumTail = (int)$row->sum % 10;
+    //     $lastSumTail = (int)$latestHistory->sum % 10;
+    //     $lastSumTailCount = (int)$latestHistory->continuous_sum_tail;
+    //     $potentialSumTailCount = ($currentSumTail === $lastSumTail) ? $lastSumTailCount + 1 : 1;
+
+    //     if ($potentialSumTailCount >= 4) {
+    //         return response()->json(['success' => true, 'data' => ['weight' => 10, 'reason' => "和值个位将达成【{$potentialSumTailCount}连开】，风险极大。"]]);
+    //     } elseif ($potentialSumTailCount == 3) {
+    //         $baseScore -= 50;
+    //         $reasons[] = "和值个位已连出2次。";
+    //     }
+
+    //     // [逻辑 5] 跨度连续拦截
+    //     $currentSpan = (int)$row->span;
+    //     if ($currentSpan === (int)$latestHistory->span && (int)$latestHistory->continuous_span_count >= 2) {
+    //         $baseScore -= 60;
+    //         $reasons[] = "跨度（{$currentSpan}）已连续2期相同。";
+    //     }
+
+    //     // [逻辑 6] 跨度异常拦截
+    //     if ($row->span < 15) {
+    //         $baseScore -= 20;
+    //         $reasons[] = "跨度过小（<15）。";
+    //     }
+
+    //     // --- 5. 结果合成 ---
+    //     if (empty($reasons)) {
+    //         $reasons[] = "号码形态分布均衡，各项指标符合常规历史走势规律。";
+    //     }
+
+    //     return response()->json([
+    //         'success' => true,
+    //         'data' => [
+    //             'weight' => max(0, (int)$baseScore),
+    //             'reason' => implode(' ', $reasons)
+    //         ]
+    //     ]);
+    // }
+
+    /**
+     * 深度演算评分报告
+     * 整合：热号、重号、极端重号、连号复刻、形态拦截、遗漏规避、历史重号走势、前三位奇偶拦截
+     * 新增：50期大样本冷热极限拦截
+     */
     public function score(Request $request)
     {
         $id = $request->input('id');
@@ -666,6 +882,36 @@ class SsqController extends Controller
         // --- 综合评分变量 ---
         $reasons = [];
         $baseScore = 95;
+
+        // =========================================================================
+        // 【新增】核心逻辑：50期大样本冷热极限拦截
+        // =========================================================================
+        // 从上期历史数据中读取我们刚刚计算并存储好的 50 期最多/最少号 JSON 数组
+        $topNums50 = json_decode($latestHistory->top_nums_50, true) ?: [];
+        $bottomNums50 = json_decode($latestHistory->bottom_nums_50, true) ?: [];
+
+        if (!empty($topNums50)) {
+            $topIntersect50 = array_intersect($currentReds, $topNums50);
+            $topCount50 = count($topIntersect50);
+            // 规则：如果号码与最多的 10 个号交集不在 2-4 个之间（即少于2个或多于4个）
+            if ($topCount50 < 2 || $topCount50 > 4) {
+                $baseScore -= 70;
+                $topStr = implode(',', $topIntersect50);
+                $reasons[] = "样本热号拦截：当前组合包含最热号码 {$topCount50} 个({$topStr})，不在的黄金分布区间内，冷热失衡风险极高。"; 
+            }
+        }
+
+        if (!empty($bottomNums50)) {
+            $bottomIntersect50 = array_intersect($currentReds, $bottomNums50);
+            $bottomCount50 = count($bottomIntersect50);
+            // 规则：如果组合与最少的 10 个号交集超过 2 个
+            if ($bottomCount50 > 2) {
+                $baseScore -= 70;
+                $bottomStr = implode(',', $bottomIntersect50);
+                $reasons[] = "样本冷号防线：当前组合最冷号码（含未出号）高达 {$bottomCount50} 个({$bottomStr})，盲目追冷极易全军覆没。";
+            }
+        }
+        // =========================================================================
 
         // --- 核心逻辑 A：计算近6期高频热号 ---
         $allRecentReds = [];
@@ -743,7 +989,7 @@ class SsqController extends Controller
             }
         }
 
-                // --- 核心逻辑 E：【修复】历史重号空缺与当前选号联动拦截 ---
+        // --- 核心逻辑 E：【修复】历史重号空缺与当前选号联动拦截 ---
         $historyDups = $recentHistory->pluck('duplicate_count')->toArray();
         
         // 只有当大盘历史近 2 期或 3 期的重号个数都为 0 时，才触发大盘趋势预警
