@@ -845,9 +845,9 @@ class SsqController extends Controller
     // }
 
     /**
-     * 深度演算评分报告
+     * 深度演算评分报告（双色球）
      * 整合：热号、重号、极端重号、连号复刻、形态拦截、遗漏规避、历史重号走势、前三位奇偶拦截
-     * 新增：50期大样本冷热极限拦截
+     * 已修复：50期大样本冷热极限拦截（从思路表动态提取）
      */
     public function score(Request $request)
     {
@@ -859,9 +859,15 @@ class SsqController extends Controller
             $row = DB::table('basic_ssq')->where('front', $frontNumbers)->first();
         }
 
-        // 2. 获取历史数据 (确保获取足够的数据进行比对)
+        if (!$row) {
+            return response()->json(['success' => false, 'message' => '未找到对应的基础号码组合']);
+        }
+
+        // 2. 获取大盘历史数据 (确保获取足够的数据进行比对)
         $recentHistory = DB::table('ssq_lotto_history')->orderBy('id', 'desc')->limit(6)->get();
-        if ($recentHistory->isEmpty()) return response()->json(['success' => false, 'message' => '历史数据为空']);
+        if ($recentHistory->isEmpty()) {
+            return response()->json(['success' => false, 'message' => '历史开奖数据为空']);
+        }
         
         $latestHistory = $recentHistory->get(0); // 上期
         $preHistory = $recentHistory->get(1);    // 上上期
@@ -884,12 +890,35 @@ class SsqController extends Controller
         $baseScore = 95;
 
         // =========================================================================
-        // 【新增】核心逻辑：50期大样本冷热极限拦截
+        // 【核心修复】：从 lottery_settings (思路表) 中动态读取对应期号的 50期冷热号
         // =========================================================================
-        // 从上期历史数据中读取我们刚刚计算并存储好的 50 期最多/最少号 JSON 数组
-        $topNums50 = json_decode($latestHistory->top_nums_50, true) ?: [];
-        $bottomNums50 = json_decode($latestHistory->bottom_nums_50, true) ?: [];
+        // 假设用户当前正在演算预测的是下期（即 latestHistory->issue 的下一期）
+        // 我们可以通过预测期号去匹配 lottery_settings 的数据。
+        // 为了稳健，我们直接取最新的那一条、或者通过 request 传入预测期号。这里以“当前大盘最新期号的下一期”来精确定位。
+        $nextIssueEstimate = $latestHistory->issue + 1; 
+        
+        $currentSetting = DB::table('lottery_settings')
+            ->where('type', 1) // 1代表双色球
+            ->where('issue', $nextIssueEstimate)
+            ->first();
 
+        // 降级兜底：如果还没创建下一期的思路，则尝试拿思路表最新的一条
+        if (!$currentSetting) {
+            $currentSetting = DB::table('lottery_settings')
+                ->where('type', 1)
+                ->orderBy('issue', 'desc')
+                ->first();
+        }
+
+        $topNums50 = [];
+        $bottomNums50 = [];
+
+        if ($currentSetting) {
+            $topNums50 = json_decode($currentSetting->top_nums_50, true) ?: [];
+            $bottomNums50 = json_decode($currentSetting->bottom_nums_50, true) ?: [];
+        }
+
+        // 拦截规则：最热 10 码命中极限拦截
         if (!empty($topNums50)) {
             $topIntersect50 = array_intersect($currentReds, $topNums50);
             $topCount50 = count($topIntersect50);
@@ -901,6 +930,7 @@ class SsqController extends Controller
             }
         }
 
+        // 拦截规则：最冷 10 码防线拦截
         if (!empty($bottomNums50)) {
             $bottomIntersect50 = array_intersect($currentReds, $bottomNums50);
             $bottomCount50 = count($bottomIntersect50);
@@ -963,8 +993,7 @@ class SsqController extends Controller
             }
         }
 
-        // --- 【新增】核心逻辑 F：前三位奇偶形态拦截 ---
-        // 获取当前前三位奇偶性 (1为奇，0为偶)
+        // --- 核心逻辑 F：前三位奇偶形态拦截 ---
         $getCurrentParity = function($c1, $c2, $c3) {
             return ($c1 % 2 === 0 ? '偶' : '奇') . ($c2 % 2 === 0 ? '偶' : '奇') . ($c3 % 2 === 0 ? '偶' : '奇');
         };
@@ -973,7 +1002,6 @@ class SsqController extends Controller
         $lastP = $getCurrentParity($latestHistory->front1, $latestHistory->front2, $latestHistory->front3);
         
         if ($currentP === $lastP) {
-            // 进一步判断是否与上上期也一致
             if ($preHistory) {
                 $preP = $getCurrentParity($preHistory->front1, $preHistory->front2, $preHistory->front3);
                 if ($currentP === $preP) {
@@ -989,23 +1017,19 @@ class SsqController extends Controller
             }
         }
 
-        // --- 核心逻辑 E：【修复】历史重号空缺与当前选号联动拦截 ---
+        // --- 核心逻辑 E：历史重号空缺与当前选号联动拦截 ---
         $historyDups = $recentHistory->pluck('duplicate_count')->toArray();
         
-        // 只有当大盘历史近 2 期或 3 期的重号个数都为 0 时，才触发大盘趋势预警
         if (count($historyDups) >= 2 && (int)$historyDups[0] === 0 && (int)$historyDups[1] === 0) {
-            
-            // 🚨 联动点：如果大盘重号空缺，但用户当前组合“及时补充了重号”（$currentDupCount > 0），则属于顺应走势，不予扣分！
             if ($currentDupCount === 0) {
                 if (count($historyDups) >= 3 && (int)$historyDups[2] === 0) {
                     $baseScore -= 50;
-                    $reasons[] = "重号极端空缺：历史近3期开奖重号个数均为0，本期重号反弹喷发概率极高！当前组合却未包含任何上期重号，需慎重。";
+                    $reasons[] = "重号极端空缺：历史近3期开奖重号个数均为0，本期重号反反弹喷发概率极高！当前组合却未包含任何上期重号，需慎重。";
                 } else {
                     $baseScore -= 20;
                     $reasons[] = "重号空缺警告：大盘近2期均未出现重号，本期重号反弹迹象明显，当前组合未现重号防线。";
                 }
             } else {
-                // 【精细化运营】如果大盘空缺，而用户刚好选了重号（比如你中了30），不仅不扣分，还给个正面评语
                 $reasons[] = "重号反弹捕获：大盘近2期重号空缺，当前组合适时切入上期重号，符合走势反弹规律。";
             }
         }

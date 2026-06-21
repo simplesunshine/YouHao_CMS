@@ -79,96 +79,101 @@ class LotterySettingController extends AdminController
                 $nested->number('sort_order', '排序')->default(0);
             })->useTable();
 
+            // --- 增加：在后台表单直接展示算好的同轨迹冷热号（只读展示） ---
+            $form->divider('历史50期同轨迹数据参考');
+            $form->display('top_nums_50', '最热10码')->with(function ($v) {
+                return $v ? implode(', ', json_decode($v, true)) : '暂无数据';
+            });
+            $form->display('bottom_nums_50', '最冷10码')->with(function ($v) {
+                return $v ? implode(', ', json_decode($v, true)) : '暂无数据';
+            });
+
             $form->display('created_at');
             $form->display('updated_at');
 
             // =========================================================================
-            // 核心逻辑升级：精准定位期号、防未来数据污染
+            // 核心逻辑升级（方案一）：回归预测本质，数据存入思路表，彻底隔离未来数据
             // =========================================================================
             $form->saved(function (Form $form) {
-                // 如果当前保存的彩种不是双色球（type=1），则直接跳过
-                if ($form->model()->type != 1) {
+                $type = (int)$form->model()->type;
+                
+                // 仅处理双色球(1)和大乐透(2)
+                if (!in_array($type, [1, 2])) {
                     return;
                 }
 
-                // 获取当前表单提交的期号
+                // 获取当前演算思路表单填写的期号（例如：2026070）
                 $inputIssue = $form->model()->issue;
                 if (empty($inputIssue)) {
                     return;
                 }
 
-                // 1. 尝试在历史表中寻找匹配当前表单输入期号的记录
-                $currentLotto = DB::table('ssq_lotto_history')
-                    ->where('issue', $inputIssue)
-                    ->first();
-
-                // 2. 核心降级与寻找前一期 front1 的逻辑
-                if (!$currentLotto) {
-                    // 情况 A：没查到对应期号，使用历史表最后一期（最新一期）
-                    $targetLotto = DB::table('ssq_lotto_history')
-                        ->orderBy('issue', 'desc')
-                        ->first();
-
-                    if (!$targetLotto) return; // 历史表彻底空无数据则退出
-
-                    $targetFront1 = $targetLotto->front1;
-                    $calcIssue = $targetLotto->issue; // 用于 SQL 限制的边界期号
-                    $updateId = $targetLotto->id;     // 待更新的目标行 ID
+                // 根据彩种动态配置参数
+                if ($type === 1) {
+                    $tableName  = 'ssq_lotto_history'; // 双色球历史表
+                    $maxBallNum = 33;                  // 红球最大编号
+                    $frontCount = 6;                   // 红球字段个数 (front1 - front6)
                 } else {
-                    // 情况 B：查到了对应期号。需要找这一期的“前一期”作为统计源头
-                    // 用当前期号 - 1 或者是找比当前期号小的最大一个（这里用 issue < 当前期号 排序找前一期更稳健，防止期号跨年不连续）
-                    $prevLotto = DB::table('ssq_lotto_history')
-                        ->where('issue', '<', $currentLotto->issue)
-                        ->orderBy('issue', 'desc')
-                        ->first();
-
-                    // 如果找不到前一期（说明是历史表里的第一条数据），无法统计，直接退出
-                    if (!$prevLotto) return; 
-
-                    $targetFront1 = $prevLotto->front1;
-                    $calcIssue = $prevLotto->issue; // 当前处理的期号
-                    $updateId = $prevLotto->id;     // 待更新的目标行 ID
+                    $tableName  = 'dlt_lotto_history'; // 大乐透历史表
+                    $maxBallNum = 35;                  // 大乐透前区最大编号
+                    $frontCount = 5;                   // 大乐透前区字段个数 (front1 - front5)
                 }
 
-                // 3. 执行安全的条件切片 SQL (加入限制：next.issue <= :current_issue)
-                // 这样无论我们修补哪一期的老数据，统计出来的永远是那一期（含）之前的历史50条
+                // 【核心改变】：无论当前期开没开奖，我们为这一期思路提供参考背景时，
+                // 永远只在历史表中，寻找比当前期号小的“最后一期已开奖数据”（即上期，如 2026069）
+                $prevLotto = DB::table($tableName)
+                    ->where('issue', '<', $inputIssue)
+                    ->orderBy('issue', 'desc')
+                    ->first();
+
+                // 如果历史表里连一条更早的开奖记录都没有，无法参考统计，直接退出
+                if (!$prevLotto) {
+                    return;
+                }
+
+                $targetFront1 = $prevLotto->front1;
+                $maxCalcIssue = $prevLotto->issue; // 关键：将统计边界死死锁定在“上一期”
+
+                // 执行安全的条件切片 SQL（上限死锁在 $maxCalcIssue，哪怕当前期开奖并录入了历史，也绝对不参与50期计算）
                 $historyRecords = DB::select("
                     SELECT *
                     FROM (
                         SELECT next.*
-                        FROM ssq_lotto_history AS next
-                        JOIN ssq_lotto_history AS prev
+                        FROM {$tableName} AS next
+                        JOIN {$tableName} AS prev
                           ON next.issue = prev.issue + 1
                         WHERE prev.front1 = :front1_val
-                          AND next.issue <= :current_issue
+                          AND next.issue <= :max_issue
                         ORDER BY next.issue DESC
                         LIMIT 50
                     ) AS t
                     ORDER BY t.issue ASC
                 ", [
-                    'front1_val'    => $targetFront1,
-                    'current_issue' => $inputIssue
+                    'front1_val' => $targetFront1,
+                    'max_issue'  => $maxCalcIssue
                 ]);
 
                 if (empty($historyRecords)) {
                     return;
                 }
 
-                // 4. 初始化 1-33 号码计数桶
-                $ballCounts = array_fill(1, 33, 0);
+                // 初始化号码计数桶（动态适配 1-33 或 1-35）
+                $ballCounts = array_fill(1, $maxBallNum, 0);
 
-                // 5. 统计红球出现频次
+                // 统计红球/前区出现频次
                 foreach ($historyRecords as $row) {
-                    for ($i = 1; $i <= 6; $i++) {
+                    for ($i = 1; $i <= $frontCount; $i++) {
                         $field = 'front' . $i;
-                        $ballNumber = (int)$row->$field;
-                        if ($ballNumber >= 1 && $ballNumber <= 33) {
-                            $ballCounts[$ballNumber]++;
+                        if (isset($row->$field)) {
+                            $ballNumber = (int)$row->$field;
+                            if ($ballNumber >= 1 && $ballNumber <= $maxBallNum) {
+                                $ballCounts[$ballNumber]++;
+                            }
                         }
                     }
                 }
 
-                // 6. 排序并截取前10和后10
+                // 排序并截取前10和后10
                 // 计算最少（含0次）
                 asort($ballCounts, SORT_NUMERIC);
                 $bottomTenWithCounts = array_slice($ballCounts, 0, 10, true);
@@ -179,13 +184,13 @@ class LotterySettingController extends AdminController
                 $topTenWithCounts = array_slice($ballCounts, 0, 10, true);
                 $topTenKeys = array_keys($topTenWithCounts);
                 
-                // 数组键名重新升序，使其按 1,2,3... 这样规整排列
+                // 数组键名重新升序，使其按 1,2,3... 规整排列
                 sort($bottomTenKeys);
                 sort($topTenKeys);
 
-                // 7. 更新到对应的行上
-                DB::table('ssq_lotto_history')
-                    ->where('id', $updateId)
+                // 【核心改变】：将计算出来的最热/最冷号，更新回当前的【演算思路主表】，不再去动历史表
+                DB::table('lottery_settings') 
+                    ->where('id', $form->model()->id)
                     ->update([
                         'top_nums_50'    => json_encode($topTenKeys),
                         'bottom_nums_50' => json_encode($bottomTenKeys),
