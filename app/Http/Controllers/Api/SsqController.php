@@ -1291,7 +1291,7 @@ class SsqController extends Controller
                 $isStandard = false;
             } else {
                 // 如果没有触发“全员大于1”的极端情况，则走原有的 6-11 个数标准判断
-                if ($matchCount >= 1 && $matchCount <= 2) {
+                if ($matchCount >= 1 && $matchCount <= 3) {
                     $detailStr = implode('、', $matchedDetails);
                     $tip = "【形态达标】当前方案符合黄金规律！红球在 6-11 遗漏值区间的号码共 {$matchCount} 个（标准要求 1~2 个）。涉及号码：{$detailStr}。";
                     $isStandard = true;
@@ -1300,7 +1300,7 @@ class SsqController extends Controller
                         $tip = "【形态异常提示】当前方案中，没有任何一个红球的遗漏值处于 6-11 的中开区间。历史大数据表明该区间最少应包含 1~2 个号码，当前选号可能会偏向极端，请理性参考。";
                     } else {
                         $detailStr = implode('、', $matchedDetails);
-                        $tip = "【形态异常提示】当前方案中，遗漏值在 6-11 之间的红球多达 {$matchCount} 个（涉及：{$detailStr}），超出了历史高频的 1~2 个标准标准。号码堆积过密，形态不够均衡。";
+                        $tip = "【形态异常提示】当前方案中，遗漏值在 6-11 之间的红球多达 {$matchCount} 个（涉及：{$detailStr}），超出了历史高频的 1~3 个标准。号码堆积过密，形态不够均衡。";
                     }
                     $isStandard = false;
                 }
