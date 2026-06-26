@@ -1128,4 +1128,73 @@ class DltController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * 【新增】大乐透机选池全网大单净化过滤打标（含期号与单期频控）
+     */
+    public function filterDadan(Request $request)
+    {
+        $user = $request->user();
+        $numbers = $request->input('numbers');
+        $issue = $request->input('issue');
+
+        // 1. 参数严格基础验证
+        if (empty($issue) || !is_array($numbers)) {
+            return response()->json(['success' => false, 'message' => '参数缺失'], 400);
+        }
+
+        $count = count($numbers);
+        if ($count < 10 || $count > 17) {
+            return response()->json(['success' => false, 'message' => '大乐透大底红球限制范围 10 - 16 个'], 400);
+        }
+
+        // 2. ⚡ 核心：按用户ID+期号生成大乐透唯一分布式锁 Key，当期只允许请求一次
+        $lockKey = "dlt_dadan_filter_user_{$user->id}_issue_{$issue}";
+        if (Cache::has($lockKey)) {
+            return response()->json([
+                'code' => 403, 
+                'success' => false, 
+                'message' => "您本期 ({$issue}期) 已执行过大单过滤，每期仅限提交 1 次！"
+            ], 403);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // 3. ⚡ 批量将涵盖在用户大底中的单式号码的 user_id 标记成 1（从机选池永久隔离）
+            // 对应 basic_dlt 表中的 code1 ~ code5 字段
+            $affectedRows = DB::table('basic_dlt')
+                ->whereIn('code1', $numbers)
+                ->whereIn('code2', $numbers)
+                ->whereIn('code3', $numbers)
+                ->whereIn('code4', $numbers)
+                ->whereIn('code5', $numbers)
+                ->whereNull('user_id') // 必须是还未被抽取派发走的干净组合
+                ->update([
+                    'user_id' => 1, 
+                    'updated_at' => now() 
+                ]);
+
+            DB::commit();
+
+            // 4. ⚡ 成功后写入缓存锁定动作，过期时间设为 3 天（确保覆盖到本期开奖结束）
+            Cache::put($lockKey, true, now()->addDays(3));
+
+            return response()->json([
+                'code' => 200, 
+                'success' => true, 
+                'data' => [
+                    'affectedRows' => $affectedRows
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'code' => 500, 
+                'success' => false, 
+                'message' => '大乐透大单穿透失败: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }

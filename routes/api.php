@@ -108,6 +108,9 @@ Route::middleware(['auth:sanctum', 'update.last.login'])->group(function (){
     Route::get('/dlt/score', [DltController::class, 'score']); // 大乐透评分详情
     Route::get('/dlt/check-omission', [DltController::class, 'checkOmission']); // 【新加】红球5-9遗漏值过滤形态接口
 
+    Route::post('/ssq/filter-dadan', [SsqController::class, 'filterDadan']); 
+    Route::post('/dlt/filter-dadan', [DltController::class, 'filterDadan']); 
+
     
     // SSQ 复式相关
     Route::get('/ssq/fushi/normal_fushi', [SsqFushiController::class, 'normalFushi']);

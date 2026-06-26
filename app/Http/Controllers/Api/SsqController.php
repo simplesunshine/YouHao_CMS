@@ -1324,4 +1324,79 @@ class SsqController extends Controller
         }
     }
 
+    /**
+     * 🔥 升级版：双色球网络大单过滤打标 (含期号校验与单期频控)
+     * 请求路径：POST /api/ssq/filter-dadan
+     */
+    public function filterDadan(Request $request)
+    {
+        $user = $request->user();
+
+        // 1. 严格校验传入的号码和期号参数
+        $numbers = $request->input('numbers');
+        $issue = $request->input('issue');
+
+        if (empty($issue)) {
+            return response()->json(['success' => false, 'message' => '过滤失败：缺少当前期号参数'], 400);
+        }
+
+        if (!is_array($numbers) || count($numbers) < 10 || count($numbers) > 16) {
+            return response()->json(['success' => false, 'message' => '过滤失败：大单红球数量必须在 10 - 16 个之间'], 400);
+        }
+
+        // 2. ⚡【核心需求】检查当前用户在当前期号下是否已经操作过
+        $lockKey = "ssq_dadan_filter_user_{$user->id}_issue_{$issue}";
+        if (Cache::has($lockKey)) {
+            return response()->json([
+                'code' => 403,
+                'success' => false,
+                'message' => "您本期 ({$issue}期) 已经提交过大单过滤，每期仅限操作 1 次！"
+            ], 403);
+        }
+
+        // 3. 确保号码为纯数字并从小到大排序
+        $numbers = array_map('intval', $numbers);
+        sort($numbers);
+
+        try {
+            DB::beginTransaction();
+
+            // 4. 执行穿透级过滤 SQL
+            $affectedRows = DB::table('basic_ssq')
+                ->whereIn('code1', $numbers)
+                ->whereIn('code2', $numbers)
+                ->whereIn('code3', $numbers)
+                ->whereIn('code4', $numbers)
+                ->whereIn('code5', $numbers)
+                ->whereIn('code6', $numbers)
+                ->whereNull('user_id') 
+                ->update([
+                    'user_id' => 1, 
+                    'updated_at' => now() 
+                ]);
+
+            DB::commit();
+
+            // 5. ⚡【核心需求】过滤成功后，写入缓存锁定动作（缓存保存 3 天，确保覆盖单期开奖周期）
+            Cache::put($lockKey, true, now()->addDays(3));
+
+            return response()->json([
+                'code' => 200,
+                'success' => true,
+                'message' => '大单过滤成功！',
+                'data' => [
+                    'affectedRows' => $affectedRows
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'code' => 500,
+                'success' => false,
+                'message' => '服务器繁忙，批量过滤打标失败: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
 }
