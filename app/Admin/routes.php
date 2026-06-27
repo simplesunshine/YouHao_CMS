@@ -29,4 +29,7 @@ Route::group([
     //用户列表
     $router->resource('users', 'UserController');
 
+    // 全网大单过滤日志路由
+    $router->resource('user-dadan-records', 'UserDadanRecordController');
+
 });
