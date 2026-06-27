@@ -1325,7 +1325,7 @@ class SsqController extends Controller
     }
 
     /**
-     * 🔥 升级版：双色球网络大单过滤打标 (含期号校验与单期频控)
+     * 🔥 升级版：双色球网络大单过滤打标 (含期号校验、单期频控与日志留痕)
      * 请求路径：POST /api/ssq/filter-dadan
      */
     public function filterDadan(Request $request)
@@ -1375,9 +1375,23 @@ class SsqController extends Controller
                     'updated_at' => now() 
                 ]);
 
+            // 5. ⚡【新增】将双色球本次提交的详细数据（含用户名）持久化到日志表
+            DB::table('user_dadan_records')->insert([
+                'user_id'       => $user->id,
+                'username'      => $user->name ?? $user->username ?? '', // 自动适配模型中的用户名属性
+                'lottery_type'  => 'ssq', // 标识为双色球
+                'issue'         => $issue,
+                'numbers'       => implode(',', $numbers), 
+                'ball_count'    => count($numbers),
+                'affected_rows' => $affectedRows,
+                'ip'            => $request->ip(),
+                'created_at'    => now(),
+                'updated_at'    => now(),
+            ]);
+
             DB::commit();
 
-            // 5. ⚡【核心需求】过滤成功后，写入缓存锁定动作（缓存保存 3 天，确保覆盖单期开奖周期）
+            // 6. ⚡【核心需求】过滤成功后，写入缓存锁定动作（缓存保存 3 天，确保覆盖单期开奖周期）
             Cache::put($lockKey, true, now()->addDays(3));
 
             return response()->json([
@@ -1398,5 +1412,4 @@ class SsqController extends Controller
             ], 500);
         }
     }
-
 }

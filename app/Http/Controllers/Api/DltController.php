@@ -1130,7 +1130,7 @@ class DltController extends Controller
     }
 
     /**
-     * 【新增】大乐透机选池全网大单净化过滤打标（含期号与单期频控）
+     * 【新增】大乐透机选池全网大单净化过滤打标（含期号、单期频控与日志留痕）
      */
     public function filterDadan(Request $request)
     {
@@ -1144,7 +1144,7 @@ class DltController extends Controller
         }
 
         $count = count($numbers);
-        if ($count < 10 || $count > 17) {
+        if ($count < 10 || $count > 16) {
             return response()->json(['success' => false, 'message' => '大乐透大底红球限制范围 10 - 16 个'], 400);
         }
 
@@ -1158,11 +1158,14 @@ class DltController extends Controller
             ], 403);
         }
 
+        // 3. 确保号码为纯数字并从小到大排序
+        $numbers = array_map('intval', $numbers);
+        sort($numbers);
+
         try {
             DB::beginTransaction();
 
-            // 3. ⚡ 批量将涵盖在用户大底中的单式号码的 user_id 标记成 1（从机选池永久隔离）
-            // 对应 basic_dlt 表中的 code1 ~ code5 字段
+            // 4. ⚡ 批量将涵盖在用户大底中的单式号码的 user_id 标记成 1（从机选池永久隔离）
             $affectedRows = DB::table('basic_dlt')
                 ->whereIn('code1', $numbers)
                 ->whereIn('code2', $numbers)
@@ -1175,9 +1178,23 @@ class DltController extends Controller
                     'updated_at' => now() 
                 ]);
 
+            // 5. ⚡【新增】将大乐透本次提交的详细数据（含用户名）持久化到日志表
+            DB::table('user_dadan_records')->insert([
+                'user_id'       => $user->id,
+                'username'      => $user->name ?? $user->username ?? '', // 自动适配模型中的用户名属性
+                'lottery_type'  => 'dlt', // 标识为大乐透
+                'issue'         => $issue,
+                'numbers'       => implode(',', $numbers), 
+                'ball_count'    => $count,
+                'affected_rows' => $affectedRows,
+                'ip'            => $request->ip(),
+                'created_at'    => now(),
+                'updated_at'    => now(),
+            ]);
+
             DB::commit();
 
-            // 4. ⚡ 成功后写入缓存锁定动作，过期时间设为 3 天（确保覆盖到本期开奖结束）
+            // 6. ⚡ 成功后写入缓存锁定动作，过期时间设为 3 天（确保覆盖到本期开奖结束）
             Cache::put($lockKey, true, now()->addDays(3));
 
             return response()->json([
