@@ -1144,8 +1144,8 @@ class DltController extends Controller
         }
 
         $count = count($numbers);
-        if ($count < 10 || $count > 16) {
-            return response()->json(['success' => false, 'message' => '大乐透大底红球限制范围 10 - 16 个'], 400);
+        if ($count < 10 || $count > 18) {
+            return response()->json(['success' => false, 'message' => '大乐透大底红球限制范围 10 - 18 个'], 400);
         }
 
         // 2. ⚡ 核心：按用户ID+期号生成大乐透唯一分布式锁 Key，当期只允许请求一次
