@@ -677,7 +677,7 @@ class SsqController extends Controller
             $prepareBlues = range(1, 16);
         }
 
-                // 2. 开始映射 5 注数据
+        // 2. 开始映射 5 注数据
         $randomData = $results->map(function ($row) use ($last, $posCounts, $hotPairs, $type, $issue, $prepareBlues) {
             $currentFirstRed = (int)$row->code1; // 当前单注首位红球 (例如：1)
             
@@ -688,36 +688,36 @@ class SsqController extends Controller
             }
             $availableBlues = $cleanPrepareBlues; // 初始可用池
 
-            // 📊 核心 SQL 逻辑修正：
-            // 1. 数据按 id DESC（新期在顶部）捞出 200 期。
-            // 2. 在 DESC 排序下，时间上的“下一期”应当使用 LAG(back, 1) 向上（未来）捕获。
-            // 3. 顶部的第一条就是最新一期，它的蓝球就是我们要的 anchor_blue (如 15)。
-            // 4. 最终拿到的 next_period_blue 就是你手算的、真正紧跟在 15 后面的那一期蓝球！
+            // 📊 🔥【MySQL 5.7 特供版核心逻辑】：去掉 WITH 和 LAG，改用传统自关联
             $transferRecords = DB::select("
-                WITH subset AS (
-                    SELECT 
-                        id, 
-                        back,
-                        LAG(back, 1) OVER (ORDER BY id DESC) as next_period_blue -- ⭐ 修正：DESC 排序下，LAG 才是时间线上的“下一期”
-                    FROM ssq_lotto_history 
-                    WHERE front1 = :front1_val
-                    ORDER BY id DESC 
-                    LIMIT 200
-                ),
-                anchor AS (
-                    SELECT back as anchor_blue FROM subset ORDER BY id DESC LIMIT 1 -- 锁定最新一期蓝球
+                SELECT h_next.back AS next_period_blue
+                FROM ssq_lotto_history h_current
+                -- 核心替代 LAG：利用主键 ID 跨表关联，精准抓取大盘真实的“相邻下一期”
+                JOIN ssq_lotto_history h_next ON h_next.id = (
+                    SELECT id FROM ssq_lotto_history 
+                    WHERE id > h_current.id 
+                    ORDER BY id ASC 
+                    LIMIT 1
                 )
-                SELECT s.next_period_blue 
-                FROM subset s
-                JOIN anchor a ON s.back = a.anchor_blue
-                WHERE s.next_period_blue IS NOT NULL
-                ORDER BY s.id DESC -- 拿离现在最近发生的 8 期状态转移
-                LIMIT 8
+                WHERE h_current.front1 = :front1_val 
+                  AND h_current.back = (
+                      -- 核心替代 anchor：动态锁定当前首位在 200 期样本空间里的最新一期蓝球（锚点）
+                      SELECT back FROM (
+                          SELECT back FROM ssq_lotto_history 
+                          WHERE front1 = :front1_val2
+                          ORDER BY id DESC 
+                          LIMIT 200
+                      ) AS temp_subset 
+                      LIMIT 1
+                  )
+                ORDER BY h_current.id DESC
+                LIMIT 7
             ", [
-                'front1_val' => $currentFirstRed
+                'front1_val'  => $currentFirstRed,
+                'front1_val2' => $currentFirstRed // 规避 PDO 同名参数报错
             ]);
 
-            // 提取最近 8 期转移里需要被杀掉的蓝球，强制去重且转整型
+            // 提取最近 7 期转移里需要被杀掉的蓝球，强制去重且转整型
             $excludeBlues = array_values(array_unique(array_map(function($subRow) { 
                 return (int)$subRow->next_period_blue; 
             }, $transferRecords)));
@@ -732,7 +732,7 @@ class SsqController extends Controller
                 }
             }
 
-            // 4. 🎲 重置索引，杜绝重复号漏杀和错位随机
+            // 4. 🎲 重置索引，安全摇号
             $availableBlues = array_values($availableBlues); 
             $finalBlue = $availableBlues[array_rand($availableBlues)];
 
