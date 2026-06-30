@@ -12,7 +12,17 @@ class LotterySetting extends Model
     // 查询时自动关联子表数据
     protected $with = ['strategyItems'];
 
-    protected $fillable = ['type', 'issue', 'enabled', 'summary', 'result_note'];
+     // 1. 修改：在可填充白名单中加上你的新字段
+    protected $fillable = ['type', 'issue', 'enabled', 'summary', 'result_note', 'prepare_blue_nums'];
+
+    // 2. 新增：字段类型强制转换（关键！）
+    // 这样在 Eloquent 中：
+    // 给它赋数组，框架会自动 json_encode 存入数据库
+    // 从数据库读取，框架会自动 json_decode 成 PHP 数组，免去手动解析麻烦
+    protected $casts = [
+        'prepare_blue_nums' => 'json',
+    ];
+
 
     public function strategyItems() {
         return $this->hasMany('App\Models\LotteryStrategyItem', 'setting_id');

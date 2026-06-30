@@ -39,6 +39,343 @@ class SsqController extends Controller
      * 通用机选接口
      * 功能：机选号码 + 自动同步到统一记录表 user_lotto_records (含期号修复)
      */
+    // public function pick(Request $request)
+    // {
+    //     $user = $request->user(); 
+    //     $ip = $request->ip();
+
+    //     // 1. 频率限制
+    //     if (!$this->checkRateLimit($user)) {
+    //         return response()->json(['success' => false, 'message' => '操作太频繁'], 429);
+    //     }
+
+    //     // 2. 限制次数 (基于新表 user_lotto_records 统计)
+    //     $count = DB::table('user_lotto_records')
+    //         ->where('user_id', $user->id)
+    //         ->where('lottery_type', 'ssq')
+    //         ->whereDate('created_at', now()->toDateString())
+    //         ->count();
+            
+    //     $maxPerUser = 5000;
+    //     $remaining = $maxPerUser - $count;
+
+    //     if ($remaining <= 0) {
+    //         return response()->json(['success' => false, 'message' => '今日机选次数已达上限', 'remain' => 0], 403);
+    //     }
+
+    //     $take = min(5, $remaining);
+    //     $type  = $request->input('type', 'normal');
+    //     $prefs = $request->input('prefs', []);
+
+    //     // 加载特征计算依赖
+    //     $last = $this->getLastIssueFeatures();
+    //     $posCounts = $this->getPosCounts();
+    //     $hotPairs = $this->getHotPairs(6);
+
+    //     if (!$last && !in_array($type, ['connect', 'history_span'])) {
+    //         return response()->json(['success' => false, 'message' => '暂无历史开奖数据']);
+    //     }
+
+    //     $results = collect();
+    //     $query = BasicSsq::whereNull('user_id');
+
+    //     // 3. 匹配玩法逻辑
+    //     switch ($type) {
+    //         case 'normal':
+    //             // 1. 获取未分配的最大和最小 ID（缓存30秒，降低IO）
+    //             $bounds = Cache::remember('ssq_id_bounds_v2', 30, function() {
+    //                 return [
+    //                     'min' => BasicSsq::whereNull('user_id')->min('id') ?? 1,
+    //                     'max' => BasicSsq::whereNull('user_id')->max('id') ?? 1
+    //                 ];
+    //             });
+
+    //             $minId = $bounds['min'];
+    //             $maxId = $bounds['max'];
+    //             $range = $maxId - $minId;
+
+    //             $results = collect();
+
+    //             if ($range > 0) {
+    //                 // 2. 扩大抽取池：为了拿 5 注，我们在百万大盘里随机轰炸 100 个不同的 ID 锚点
+    //                 $seedIds = [];
+    //                 $totalNeed = $take * 20; // 轰炸 100 个点，确保绝对离散
+    //                 for ($i = 0; $i < $totalNeed; $i++) {
+    //                     $seedIds[] = mt_rand($minId, $maxId);
+    //                 }
+    //                 $seedIds = array_unique($seedIds);
+
+    //                 // 3. 一次性进数据库精准过滤：必须是未被分配的，且利用 MySQL 底层索引快速筛选
+    //                 $validRows = BasicSsq::whereIn('id', $seedIds)
+    //                     ->whereNull('user_id')
+    //                     ->get();
+
+    //                 if ($validRows->isNotEmpty()) {
+    //                     // 4. 关键点：在内存中再次打乱结果集，彻底破坏 MySQL 默认的 ID 有序性
+    //                     $results = $validRows->shuffle()->take($take);
+    //                 }
+    //             }
+
+    //             // 5. 极端兜底：如果随机轰炸的 100 个点刚好都撞到了空洞或已被选走，导致数量不够
+    //             if ($results->count() < $take) {
+    //                 $needCount = $take - $results->count();
+    //                 // 此时使用轻量级的 limit 补齐，因为有上面的 shuffle，整体依然保持极高离散度
+    //                 $extra = BasicSsq::whereNull('user_id')
+    //                     ->limit($needCount)
+    //                     ->get();
+    //                 $results = $results->merge($extra);
+    //             }
+    //             break;
+
+    //         case 'kill_pick':
+    //             $killFrontStr = $prefs['kill_front'] ?? '';
+    //             if (!empty($killFrontStr)) {
+    //                 $killFrontArray = array_filter(array_map('intval', explode(',', $killFrontStr)));
+    //                 if (!empty($killFrontArray)) {
+    //                     $query->whereNotIn('code1', $killFrontArray)
+    //                           ->whereNotIn('code2', $killFrontArray)
+    //                           ->whereNotIn('code3', $killFrontArray)
+    //                           ->whereNotIn('code4', $killFrontArray)
+    //                           ->whereNotIn('code5', $killFrontArray)
+    //                           ->whereNotIn('code6', $killFrontArray);
+    //                 }
+    //             }
+    //             // 【性能优化】复用高效随机抽样器
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;                
+
+    //         case 'dan_only':
+    //             $dan = (array)($prefs['dan'] ?? []);
+    //             if (count($dan) < 1 || count($dan) > 5) {
+    //                 return response()->json(['success' => false, 'message' => '胆码数量必须 1–5 个'], 400);
+    //             }
+    //             foreach ($dan as $num) {
+    //                 $query->where(function ($q) use ($num) {
+    //                     $q->orWhere('code1', $num)->orWhere('code2', $num)->orWhere('code3', $num)
+    //                       ->orWhere('code4', $num)->orWhere('code5', $num)->orWhere('code6', $num);
+    //                 });
+    //             }
+    //             // 【性能优化】复用高效随机抽样器
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;
+
+    //         case 'first_advantage':
+    //             $firstCounts = Cache::remember('ssq_last80_first_counts', 60, function () {
+    //                 return DB::table('ssq_lotto_history')
+    //                     ->orderByDesc('id')
+    //                     ->limit(80)
+    //                     ->pluck('front1')
+    //                     ->countBy()
+    //                     ->toArray();
+    //             });
+
+    //             arsort($firstCounts);
+    //             $firstAdvTop = array_slice($firstCounts, 0, 5, true);
+                
+    //             $query->whereIn('code1', array_keys($firstAdvTop));
+    //             // 【性能优化】复用高效随机抽样器
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;
+
+    //         case 'connect':
+    //             $consecutive = (int)($prefs['serial'] ?? 0);
+    //             if ($consecutive <= 0) return response()->json(['success' => false, 'message' => '请选择连号个数'], 400);
+                
+    //             $query->where('consecutive_count', $consecutive);
+    //             // 【性能优化】复用高效随机抽样器
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;
+
+    //         case 'include_sum':
+    //             $includeCount = (int)$request->input('exclude', 10); 
+                
+    //             $includeSums = DB::table('ssq_lotto_history')
+    //                 ->orderByDesc('issue')
+    //                 ->limit($includeCount)
+    //                 ->pluck('sum')
+    //                 ->unique()
+    //                 ->toArray();
+
+    //             if (!empty($includeSums)) {
+    //                 $query->whereIn('sum', $includeSums);
+    //             } else {
+    //                 return response()->json(['success' => false, 'message' => '无法提取历史和值特征'], 400);
+    //             }
+    //             // 【性能优化】复用高效随机抽样器
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;
+
+    //         case 'history_sum':
+    //             $excludeCount = (int)$request->input('exclude', 0);
+    //             $excludeSums = $excludeCount > 0 ? DB::table('ssq_lotto_history')->orderByDesc('issue')->limit($excludeCount)->pluck('sum')->toArray() : [];
+    //             if (!empty($excludeSums)) $query->whereNotIn('sum', $excludeSums);
+                
+    //             // 【性能优化】复用高效随机抽样器
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;
+
+    //         case 'history_span':
+    //             $exclude = (array)$request->input('exclude', []);
+    //             if (!empty($exclude)) $query->whereNotIn('span', $exclude);
+                
+    //             // 【性能优化】复用高效随机抽样器
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;
+
+    //         case 'odd_even':
+    //             if (empty($prefs['odd_even'])) return response()->json(['success' => false, 'message' => '请选择奇偶比'], 400);
+    //             [$odd, $even] = explode(':', $prefs['odd_even']);
+                
+    //             $query->where('odd_count', (int)$odd)->where('even_count', (int)$even);
+    //             // 【性能优化】复用高效随机抽样器
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;
+
+    //         case 'first_last':
+    //             if (!empty($prefs['first'])) $query->where('code1', $prefs['first']);
+    //             if (!empty($prefs['last'])) $query->where('code6', $prefs['last']);
+                
+    //             // 【性能优化】复用高效随机抽样器
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;
+    //         // ==================== 🔥 新增：精细化动态条件选号玩法 ====================
+    //         case 'advanced_filter':
+    //             // 1. 各位置红球范围过滤 (P1 ~ P6)
+    //             // 数据库字段通常是 code1 ~ code6 或根据你的实际字段调整
+    //             for ($i = 1; $i <= 6; $i++) {
+    //                 $pKey = "p{$i}";
+    //                 if ($request->has($pKey) && is_array($request->input($pKey)) && !empty($request->input($pKey))) {
+    //                     $query->whereIn("code{$i}", $request->input($pKey));
+    //                 }
+    //             }
+
+    //             // 2. 全局可视化杀号过滤
+    //             if ($request->has('killNums') && is_array($request->input('killNums')) && !empty($request->input('killNums'))) {
+    //                 $killNums = array_map('intval', $request->input('killNums'));
+    //                 $query->whereNotIn('code1', $killNums)
+    //                       ->whereNotIn('code2', $killNums)
+    //                       ->whereNotIn('code3', $killNums)
+    //                       ->whereNotIn('code4', $killNums)
+    //                       ->whereNotIn('code5', $killNums)
+    //                       ->whereNotIn('code6', $killNums);
+    //             }
+
+    //             // 3. 各位置奇偶形态过滤 (通过余数模型进行按需拦截)
+    //             if ($request->has('parityMode') && is_array($request->input('parityMode'))) {
+    //                 $parityMode = $request->input('parityMode');
+    //                 for ($i = 1; $i <= 6; $i++) {
+    //                     if (isset($parityMode["p{$i}"])) {
+    //                         $mode = $parityMode["p{$i}"];
+    //                         if ($mode === 'even') {
+    //                             // 必须为偶数
+    //                             $query->whereRaw("code{$i} % 2 = 0");
+    //                         } elseif ($mode === 'odd') {
+    //                             // 必须为奇数
+    //                             $query->whereRaw("code{$i} % 2 != 0");
+    //                         }
+    //                     }
+    //                 }
+    //             }
+
+    //             // 4. 第一、二位组合奇偶拦截
+    //             if ($request->boolean('noDoubleEven')) {
+    //                 // 不能同时为偶数：意思是 (code1不是偶数) 或者 (code2不是偶数)
+    //                 $query->where(function($q) {
+    //                     $q->whereRaw("code1 % 2 != 0")
+    //                     ->orWhereRaw("code2 % 2 != 0");
+    //                 });
+    //             }
+
+    //             if ($request->boolean('noDoubleOdd')) {
+    //                 // 不能同时为奇数：意思是 (code1不是奇数) 或者 (code2不是奇数)
+    //                 $query->where(function($q) {
+    //                     $q->whereRaw("code1 % 2 = 0")
+    //                     ->orWhereRaw("code2 % 2 = 0");
+    //                 });
+    //             }
+
+    //             // 5. 连号过滤模式 (复用你表里的 consecutive_count 字段)
+    //             if ($request->has('consecutiveMode')) {
+    //                 $cMode = $request->input('consecutiveMode');
+    //                 if ($cMode === 'must') {
+    //                     // 必须有连号
+    //                     $query->where('consecutive_count', '>=', 1);
+    //                 } elseif ($cMode === 'none') {
+    //                     // 必须无连号
+    //                     $query->where('consecutive_count', 0);
+    //                 }
+    //             }
+
+    //             // 6. 调用你写好的高性能随机抽样器在大盘中快速切出 5 注
+    //             $results = $this->fetchRandomlyWithQuery($query, $take);
+    //             break;
+
+    //         default:
+    //             return response()->json(['success' => false, 'message' => '未知机选类型'], 400);
+    //     }
+
+    //     if ($results->isEmpty()) {
+    //         return response()->json(['success' => false, 'message' => '没有符合条件的号码或数据未更新']);
+    //     }
+
+    //     $issue = $this->currentIssue();
+    //     // 4. 构建前端返回数据 (修复期号显示)
+    //     $randomData = $results->map(function ($row) use ($last, $posCounts, $hotPairs, $type, $issue) {
+
+    //         $base = [
+    //             'id' => $row->id,
+    //             'issue' => $issue,
+    //             'front_numbers' => $row->front,
+    //             'back_numbers'  => $row->back,
+    //         ];
+
+    //         if (!in_array($type, ['connect', 'history_span'])) {
+    //             $base['features'] = $this->buildFeatures($row, $last, $posCounts, $hotPairs);
+    //         }
+    //         return $base;
+    //     });
+
+    //     // 5. 自动同步到【统一记录表 user_lotto_records】 (含期号修复)
+    //     $records = [];
+    //     foreach ($results as $row) {
+    //         $records[] = [
+    //             'user_id'       => $user->id,
+    //             'lottery_type'  => 'ssq',
+    //             'is_fushi'      => 0,
+    //             'issue'         => $issue,
+    //             'mode'          => $type,
+    //             'red_numbers'   => $row->front,
+    //             'blue_numbers'  => $row->back,
+    //             'red_dan'       => '',
+    //             'ip'            => $ip,
+    //             'created_at'    => now(),
+    //             'updated_at'    => now(),
+    //         ];
+    //     }
+    //     DB::table('user_lotto_records')->insert($records);
+
+    //     // 更新机选库标记
+    //         BasicSsq::whereIn('id', $results->pluck('id'))->update([
+    //         'user_id' => $user->id
+    //     ]);
+        
+    //     // 4. 构建最终响应结构
+    //     $response = [
+    //         'success' => true,
+    //         'data' => $randomData,
+    //         'remain' => $remaining - $results->count()
+    //     ];
+
+    //     // --- 修复点：确保变量名与上面定义的 $firstAdvTop 一致，并赋值给前端期待的 'first_advantage_top' ---
+    //     if ($type === 'first_advantage') {
+    //         // 注意：前端代码里用的是 res.data.first_advantage_top
+    //         $response['first_advantage_top'] = $firstAdvTop ?? [];
+    //     }
+
+    //     return response()->json($response);
+
+    // }
+
     public function pick(Request $request)
     {
         $user = $request->user(); 
@@ -319,14 +656,91 @@ class SsqController extends Controller
         }
 
         $issue = $this->currentIssue();
-        // 4. 构建前端返回数据 (修复期号显示)
-        $randomData = $results->map(function ($row) use ($last, $posCounts, $hotPairs, $type, $issue) {
+
+        // =========================================================================
+        // 🔥 【核心精准修复】：完全基于“专属首位历史子集”内部的状态转移过滤
+        // =========================================================================
+        // 1. 获取本期思路表配置的预备蓝球池
+        $setting = DB::table('lottery_settings')
+            ->where('type', 1) // 双色球
+            ->where('issue', $issue)
+            ->where('enabled', 1)
+            ->first();
+
+        // 统一在外面把预备蓝球池洗成干净的数组，防止 array_diff 报错
+        if ($setting && !empty($setting->prepare_blue_nums)) {
+            $decoded = json_decode($setting->prepare_blue_nums, true);
+            $prepareBlues = is_array($decoded) 
+                ? $decoded 
+                : array_map('intval', explode(',', str_replace(['[', ']', '"'], '', $setting->prepare_blue_nums)));
+        } else {
+            $prepareBlues = range(1, 16);
+        }
+
+                // 2. 开始映射 5 注数据
+        $randomData = $results->map(function ($row) use ($last, $posCounts, $hotPairs, $type, $issue, $prepareBlues) {
+            $currentFirstRed = (int)$row->code1; // 当前单注首位红球 (例如：1)
+            
+            // 🛡️ 强制备选池 100% 转化为干净的、去重后的纯整型数组
+            $cleanPrepareBlues = array_values(array_unique(array_map('intval', is_array($prepareBlues) ? $prepareBlues : [])));
+            if (empty($cleanPrepareBlues)) {
+                $cleanPrepareBlues = range(1, 16);
+            }
+            $availableBlues = $cleanPrepareBlues; // 初始可用池
+
+            // 📊 核心 SQL 逻辑修正：
+            // 1. 数据按 id DESC（新期在顶部）捞出 200 期。
+            // 2. 在 DESC 排序下，时间上的“下一期”应当使用 LAG(back, 1) 向上（未来）捕获。
+            // 3. 顶部的第一条就是最新一期，它的蓝球就是我们要的 anchor_blue (如 15)。
+            // 4. 最终拿到的 next_period_blue 就是你手算的、真正紧跟在 15 后面的那一期蓝球！
+            $transferRecords = DB::select("
+                WITH subset AS (
+                    SELECT 
+                        id, 
+                        back,
+                        LAG(back, 1) OVER (ORDER BY id DESC) as next_period_blue -- ⭐ 修正：DESC 排序下，LAG 才是时间线上的“下一期”
+                    FROM ssq_lotto_history 
+                    WHERE front1 = :front1_val
+                    ORDER BY id DESC 
+                    LIMIT 200
+                ),
+                anchor AS (
+                    SELECT back as anchor_blue FROM subset ORDER BY id DESC LIMIT 1 -- 锁定最新一期蓝球
+                )
+                SELECT s.next_period_blue 
+                FROM subset s
+                JOIN anchor a ON s.back = a.anchor_blue
+                WHERE s.next_period_blue IS NOT NULL
+                ORDER BY s.id DESC -- 拿离现在最近发生的 8 期状态转移
+                LIMIT 8
+            ", [
+                'front1_val' => $currentFirstRed
+            ]);
+
+            // 提取最近 8 期转移里需要被杀掉的蓝球，强制去重且转整型
+            $excludeBlues = array_values(array_unique(array_map(function($subRow) { 
+                return (int)$subRow->next_period_blue; 
+            }, $transferRecords)));
+
+            // 3. 算差集：严格剔除
+            if (!empty($excludeBlues)) {
+                $availableBlues = array_diff($cleanPrepareBlues, $excludeBlues);
+
+                // 🛡️ 兜底
+                if (empty($availableBlues)) {
+                    $availableBlues = $cleanPrepareBlues;
+                }
+            }
+
+            // 4. 🎲 重置索引，杜绝重复号漏杀和错位随机
+            $availableBlues = array_values($availableBlues); 
+            $finalBlue = $availableBlues[array_rand($availableBlues)];
 
             $base = [
                 'id' => $row->id,
                 'issue' => $issue,
                 'front_numbers' => $row->front,
-                'back_numbers'  => $row->back,
+                'back_numbers'  => str_pad($finalBlue, 2, '0', STR_PAD_LEFT),
             ];
 
             if (!in_array($type, ['connect', 'history_span'])) {
@@ -335,17 +749,17 @@ class SsqController extends Controller
             return $base;
         });
 
-        // 5. 自动同步到【统一记录表 user_lotto_records】 (含期号修复)
+        // 5. 自动同步到【统一记录表 user_lotto_records】 
         $records = [];
-        foreach ($results as $row) {
+        foreach ($randomData as $index => $mappedRow) {
             $records[] = [
                 'user_id'       => $user->id,
                 'lottery_type'  => 'ssq',
                 'is_fushi'      => 0,
                 'issue'         => $issue,
                 'mode'          => $type,
-                'red_numbers'   => $row->front,
-                'blue_numbers'  => $row->back,
+                'red_numbers'   => $mappedRow['front_numbers'],
+                'blue_numbers'  => (int)$mappedRow['back_numbers'],
                 'red_dan'       => '',
                 'ip'            => $ip,
                 'created_at'    => now(),
@@ -355,7 +769,7 @@ class SsqController extends Controller
         DB::table('user_lotto_records')->insert($records);
 
         // 更新机选库标记
-            BasicSsq::whereIn('id', $results->pluck('id'))->update([
+        BasicSsq::whereIn('id', $results->pluck('id'))->update([
             'user_id' => $user->id
         ]);
         
@@ -366,9 +780,7 @@ class SsqController extends Controller
             'remain' => $remaining - $results->count()
         ];
 
-        // --- 修复点：确保变量名与上面定义的 $firstAdvTop 一致，并赋值给前端期待的 'first_advantage_top' ---
         if ($type === 'first_advantage') {
-            // 注意：前端代码里用的是 res.data.first_advantage_top
             $response['first_advantage_top'] = $firstAdvTop ?? [];
         }
 
