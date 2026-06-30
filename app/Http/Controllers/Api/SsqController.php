@@ -688,41 +688,38 @@ class SsqController extends Controller
             }
             $availableBlues = $cleanPrepareBlues; // 初始可用池
 
-            // 📊 🔥【MySQL 5.7 特供版核心逻辑】：去掉 WITH 和 LAG，改用传统自关联
-            $transferRecords = DB::select("
-                SELECT h_next.back AS next_period_blue
-                FROM ssq_lotto_history h_current
-                -- 核心替代 LAG：利用主键 ID 跨表关联，精准抓取大盘真实的“相邻下一期”
-                JOIN ssq_lotto_history h_next ON h_next.id = (
-                    SELECT id FROM ssq_lotto_history 
-                    WHERE id > h_current.id 
-                    ORDER BY id ASC 
-                    LIMIT 1
-                )
-                WHERE h_current.front1 = :front1_val 
-                  AND h_current.back = (
-                      -- 核心替代 anchor：动态锁定当前首位在 200 期样本空间里的最新一期蓝球（锚点）
-                      SELECT back FROM (
-                          SELECT back FROM ssq_lotto_history 
-                          WHERE front1 = :front1_val2
-                          ORDER BY id DESC 
-                          LIMIT 200
-                      ) AS temp_subset 
-                      LIMIT 1
-                  )
-                ORDER BY h_current.id DESC
-                LIMIT 7
-            ", [
-                'front1_val'  => $currentFirstRed,
-                'front1_val2' => $currentFirstRed // 规避 PDO 同名参数报错
-            ]);
+            // 📊 1. 兼容 MySQL 5.7：只做纯粹的数据捞取，按 id DESC 严格拿 200 期
+            $subset = DB::table('ssq_lotto_history')
+                ->select('id', 'back')
+                ->where('front1', $currentFirstRed)
+                ->orderBy('id', 'desc')
+                ->limit(200)
+                ->get()
+                ->toArray(); // 转化为普通数组，方便用索引上下查找
 
-            // 提取最近 7 期转移里需要被杀掉的蓝球，强制去重且转整型
-            $excludeBlues = array_values(array_unique(array_map(function($subRow) { 
-                return (int)$subRow->next_period_blue; 
-            }, $transferRecords)));
+            $excludeBlues = [];
 
-            // 3. 算差集：严格剔除
+            if (!empty($subset)) {
+                // 🎯 2. 锁定最新一期的蓝球作为锚点（由于按 id DESC 排序，第 0 个就是最新一期）
+                $anchorBlue = (int)$subset[0]->back;
+
+                // 🔄 3. 在 PHP 数组里完美模拟 LAG(back, 1) OVER (ORDER BY id DESC)
+                // 降序排列下，找历史的“相邻下一期”，就是找当前行的“前一行”（索引 i - 1）
+                $nextPeriodBlues = [];
+                foreach ($subset as $index => $currentPeriod) {
+                    // 如果这一期的蓝球等于锚点蓝球，且它有“前一行”（也就是时间线上的下一期）
+                    if ((int)$currentPeriod->back === $anchorBlue && $index > 0) {
+                        // 抓取上一行的蓝球，加入状态转移池
+                        $nextPeriodBlues[] = (int)$subset[$index - 1]->back;
+                    }
+                }
+
+                // 📊 4. 严格按照时间倒序（因为 subset 本身就是倒序的，最先匹配到的就是最近发生的）
+                // 限制只取最近的 8 期状态转移，并强制去重
+                $excludeBlues = array_values(array_unique(array_slice($nextPeriodBlues, 0, 8)));
+            }
+
+            // 5. 算差集：严格剔除
             if (!empty($excludeBlues)) {
                 $availableBlues = array_diff($cleanPrepareBlues, $excludeBlues);
 
@@ -732,7 +729,7 @@ class SsqController extends Controller
                 }
             }
 
-            // 4. 🎲 重置索引，安全摇号
+            // 6. 🎲 重置索引，杜绝重复号漏杀和错位随机
             $availableBlues = array_values($availableBlues); 
             $finalBlue = $availableBlues[array_rand($availableBlues)];
 
