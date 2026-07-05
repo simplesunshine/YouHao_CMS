@@ -578,11 +578,10 @@ class SsqController extends Controller
             // ==================== 🔥 新增：精细化动态条件选号玩法 ====================
             case 'advanced_filter':
                 // 1. 各位置红球范围过滤 (P1 ~ P6)
-                // 数据库字段通常是 code1 ~ code6 或根据你的实际字段调整
                 for ($i = 1; $i <= 6; $i++) {
                     $pKey = "p{$i}";
                     if ($request->has($pKey) && is_array($request->input($pKey)) && !empty($request->input($pKey))) {
-                        $query->whereIn("code{$i}", $request->input($pKey));
+                        $query->whereIn("code{$i}", array_map('intval', $request->input($pKey)));
                     }
                 }
 
@@ -595,6 +594,23 @@ class SsqController extends Controller
                           ->whereNotIn('code4', $killNums)
                           ->whereNotIn('code5', $killNums)
                           ->whereNotIn('code6', $killNums);
+                }
+
+                // 【新增】2.5 全局红球胆码过滤断言
+                if ($request->has('danNums') && is_array($request->input('danNums')) && !empty($request->input('danNums'))) {
+                    $danNums = array_map('intval', $request->input('danNums'));
+                    
+                    // 遍历每一个选中的红球胆码，确保它必须命中 code1 ~ code6 中的任一位置
+                    foreach ($danNums as $danNum) {
+                        $query->where(function ($subQuery) use ($danNum) {
+                            $subQuery->where('code1', $danNum)
+                                     ->orWhere('code2', $danNum)
+                                     ->orWhere('code3', $danNum)
+                                     ->orWhere('code4', $danNum)
+                                     ->orWhere('code5', $danNum)
+                                     ->orWhere('code6', $danNum);
+                        });
+                    }
                 }
 
                 // 3. 各位置奇偶形态过滤 (通过余数模型进行按需拦截)
