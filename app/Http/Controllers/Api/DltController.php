@@ -521,188 +521,6 @@ class DltController extends Controller
      * 大乐透深度演算评分报告
      * 整合：高频重号压制、断区趋势预警、和尾连开拦截、和值区间停留拦截、形态拦截、前三位奇偶形态拦截
      */
-    // public function score(Request $request)
-    // {
-    //     $id = $request->input('id');
-    //     if ($id) {
-    //         $row = DB::table('basic_dlt')->where('id', $id)->first();
-    //     } else {
-    //         $frontNumbers = $request->input('front_numbers');
-    //         $row = DB::table('basic_dlt')->where('front', $frontNumbers)->first();
-    //     }
-
-    //     // 2. 获取历史数据 (最近 10 期)
-    //     $recentHistory = DB::table('dlt_lotto_history')->orderBy('id', 'desc')->limit(10)->get();
-    //     if ($recentHistory->isEmpty()) return response()->json(['success' => false, 'message' => '历史数据为空']);
-        
-    //     $latestHistory = $recentHistory->get(0); // 上期
-    //     $preHistory = $recentHistory->get(1);    // 上上期
-
-    //     // --- 基础数据准备 ---
-    //     $currentFronts = [(int)$row->code1, (int)$row->code2, (int)$row->code3, (int)$row->code4, (int)$row->code5];
-    //     sort($currentFronts);
-
-    //     $lastFronts = [(int)$latestHistory->front1, (int)$latestHistory->front2, (int)$latestHistory->front3, (int)$latestHistory->front4, (int)$latestHistory->front5];
-    //     sort($lastFronts);
-
-    //     $reasons = [];
-    //     $baseScore = 95;
-
-    //     // 定义区间映射逻辑
-    //     $getPositionSegment = function($pos) {
-    //         if ($pos <= 99999) return 1;
-    //         if ($pos <= 199999) return 2;
-    //         if ($pos <= 299999) return 3;
-    //         return 4; // 300000 - 330000+
-    //     };
-
-    //     if ($preHistory) {
-    //         $currentSegment = $getPositionSegment($row->id); // 当前评分号所在的 basic_dlt id
-    //         $lastSegment = $getPositionSegment($latestHistory->position); // 上期历史
-    //         $preSegment = $getPositionSegment($preHistory->position);   // 上上期历史
-
-    //         // 如果最近两期在同一个区间，且当前号也在同一个区间
-    //         if ($lastSegment === $preSegment && $currentSegment === $lastSegment) {
-    //             $baseScore -= 80;
-    //             $reasons[] = "号码连续落在一个ID区间（区间{$currentSegment}），评分下降。";
-    //         }
-    //     }
-
-    //     // --- 核心逻辑 A：重号拦截与极限压制 ---
-    //     $currentDuplicateWithLast = array_intersect($currentFronts, $lastFronts);
-    //     $currentDupCount = count($currentDuplicateWithLast);
-    //     $lastPeriodDupCount = (int)$latestHistory->duplicate_count; 
-
-    //     if ($lastPeriodDupCount >= 3 && $currentDupCount >= 3) {
-    //         $baseScore -= 90;
-    //         $numsStr = implode(',', $currentDuplicateWithLast);
-    //         $reasons[] = "形态高频过载：上期已出现 {$lastPeriodDupCount} 个重号，本组合再次出现 {$currentDupCount} 个重号({$numsStr})。";
-    //     } elseif ($currentDupCount >= 3) {
-    //         $baseScore -= 40;
-    //         $reasons[] = "重号偏多：与上期重复 {$currentDupCount} 个号码。";
-    //     }
-
-    //     // --- 核心逻辑 B：和值区间停留拦截 ---
-    //     $currentSumRange = floor((int)$row->sum / 10);
-    //     $lastSumRange = floor((int)$latestHistory->sum / 10);
-    //     $lastSumRangeCount = (int)$latestHistory->continuous_sum_range; 
-
-    //     if ($currentSumRange == $lastSumRange && $lastSumRangeCount >= 2) {
-    //         $baseScore -= 30;
-    //         $rangeStart = $currentSumRange * 10;
-    //         $rangeEnd = $rangeStart + 9;
-    //         $reasons[] = "和值区间过热：和值已连续 2 期停留在 {$rangeStart}-{$rangeEnd} 范围内，本组合再次落入该区间，开出概率极低。";
-    //     }
-
-    //     // --- 核心逻辑 C：区间比与断区预警逻辑 ---
-    //     $last3History = $recentHistory->take(3);
-    //     $historyHasBrokenZone = false;
-    //     foreach ($last3History as $h) {
-    //         $ratios = explode(':', $h->zone_ratio);
-    //         if (in_array('0', $ratios)) { $historyHasBrokenZone = true; break; }
-    //     }
-    //     $currentIsBroken = ($row->zone1_count == 0 || $row->zone2_count == 0 || $row->zone3_count == 0);
-
-    //     if (!$historyHasBrokenZone && !$currentIsBroken) {
-    //         $baseScore -= 10;
-    //         $reasons[] = "历史趋近断区号：最近3期均未出现断区，当前组合亦无断区，警惕反弹。";
-    //     }
-
-    //     // --- 核心逻辑 D：和值个位（和尾）连开拦截 ---
-    //     $currentSumTail = (int)$row->sum % 10;
-    //     $lastSumTail = (int)$latestHistory->sum % 10;
-    //     $lastSumTailCount = (int)$latestHistory->continuous_sum_tail;
-
-    //     if ($currentSumTail === $lastSumTail && $lastSumTailCount >= 2) {
-    //         $baseScore -= 50;
-    //         $reasons[] = "和值个位（{$currentSumTail}）已连开 2 期，执行拦截。";
-    //     }
-
-    //     // --- 【新增】核心逻辑 G：前三位奇偶形态拦截 ---
-    //     $getCurrentParityStr = function($c1, $c2, $c3) {
-    //         return ($c1 % 2 === 0 ? '偶' : '奇') . ($c2 % 2 === 0 ? '偶' : '奇') . ($c3 % 2 === 0 ? '偶' : '奇');
-    //     };
-
-    //     $currentP = $getCurrentParityStr($currentFronts[0], $currentFronts[1], $currentFronts[2]);
-    //     $lastP = $getCurrentParityStr($latestHistory->front1, $latestHistory->front2, $latestHistory->front3);
-
-    //     if ($currentP === $lastP) {
-    //         // 判断是否三连
-    //         if ($preHistory) {
-    //             $preP = $getCurrentParityStr($preHistory->front1, $preHistory->front2, $preHistory->front3);
-    //             if ($currentP === $preP) {
-    //                 $baseScore -= 90;
-    //                 $reasons[] = "前三位奇偶形态({$currentP})达成三连，风险极大。";
-    //             } else {
-    //                 $baseScore -= 10;
-    //                 $reasons[] = "前三位奇偶形态({$currentP})与上期雷同，降低权重。";
-    //             }
-    //         } else {
-    //             $baseScore -= 20;
-    //             $reasons[] = "前三位奇偶形态({$currentP})与上期雷同。";
-    //         }
-    //     }
-
-    //     // --- 核心逻辑 E：连号复刻拦截 ---
-    //     $lastConsecutiveSets = [];
-    //     $tempSet = [$lastFronts[0]];
-    //     for ($i = 1; $i < count($lastFronts); $i++) {
-    //         if ($lastFronts[$i] == $lastFronts[$i - 1] + 1) {
-    //             $tempSet[] = $lastFronts[$i];
-    //         } else {
-    //             if (count($tempSet) >= 2) $lastConsecutiveSets[] = $tempSet;
-    //             $tempSet = [$lastFronts[$i]];
-    //         }
-    //     }
-    //     if (count($tempSet) >= 2) $lastConsecutiveSets[] = $tempSet;
-
-    //     foreach ($lastConsecutiveSets as $set) {
-    //         if (count(array_intersect($currentFronts, $set)) === count($set)) {
-    //             $baseScore -= 60;
-    //             $setStr = implode('-', $set);
-    //             $reasons[] = "连号复刻警告：包含了与上期相同的连号组({$setStr})。";
-    //             break; 
-    //         }
-    //     }
-
-    //     // --- 核心逻辑 F：热号及其他形态 ---
-    //     $allRecentFronts = [];
-    //     foreach ($recentHistory as $h) {
-    //         $allRecentFronts = array_merge($allRecentFronts, [(int)$h->front1, (int)$h->front2, (int)$h->front3, (int)$h->front4, (int)$h->front5]);
-    //     }
-    //     $counts = array_count_values($allRecentFronts);
-    //     $hotNumbers = array_keys(array_filter($counts, fn($v) => $v >= 2));
-      
-    //     $hotIntersect = array_intersect($currentFronts, $hotNumbers);
-
-    //     if (count($hotIntersect) === 0) {
-    //         $baseScore -= 60;
-    //         $reasons[] = "未包含近 10 期内的高频热号。";
-    //     }
-
-    //     if ($row->odd_count == 5 || $row->odd_count == 0) {
-    //         return response()->json(['success' => true, 'data' => ['weight' => 50, 'reason' => "极端奇偶形态，建议防御。"]]);
-    //     }
-
-    //     // --- 结果合成 ---
-    //     if (empty($reasons)) {
-    //         $reasons[] = "号码各项指标分布均衡，符合大乐透常规历史走势。";
-    //     }
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'data' => [
-    //             'weight' => max(0, (int)$baseScore),
-    //             'reason' => implode(' ', $reasons)
-    //         ]
-    //     ]);
-    // }
-
-    /**
-     * 大乐透深度演算评分报告
-     * 整合：高频重号压制、断区趋势预警、和尾连开拦截、和值区间停留拦截、形态拦截、前三位奇偶形态拦截
-     * 已修复：50期大样本冷热极限拦截（从思路表动态提取，适配大乐透 type=2）
-     */
     public function score(Request $request)
     {
         $id = $request->input('id');
@@ -711,10 +529,6 @@ class DltController extends Controller
         } else {
             $frontNumbers = $request->input('front_numbers');
             $row = DB::table('basic_dlt')->where('front', $frontNumbers)->first();
-        }
-
-        if (!$row) {
-            return response()->json(['success' => false, 'message' => '未找到对应的基础号码组合']);
         }
 
         // 2. 获取历史数据 (最近 10 期)
@@ -734,69 +548,20 @@ class DltController extends Controller
         $reasons = [];
         $baseScore = 95;
 
-        // =========================================================================
-        // 【新增/核心修复】：从 lottery_settings (思路表) 中动态读取对应期号的 50期冷热号
-        // =========================================================================
-        // 推算当前预测/演算的期号（大盘最新期号 + 1）
-        $nextIssueEstimate = $latestHistory->issue + 1; 
-        
-        $currentSetting = DB::table('lottery_settings')
-            ->where('type', 2) // 🚨 2代表大乐透
-            ->where('issue', $nextIssueEstimate)
-            ->first();
-
-        // 降级兜底：如果还没创建下一期的思路，则拿大乐透最新的一期配置
-        if (!$currentSetting) {
-            $currentSetting = DB::table('lottery_settings')
-                ->where('type', 2)
-                ->orderBy('issue', 'desc')
-                ->first();
-        }
-
-        $topNums50 = [];
-        $bottomNums50 = [];
-
-        if ($currentSetting) {
-            $topNums50 = json_decode($currentSetting->top_nums_50, true) ?: [];
-            $bottomNums50 = json_decode($currentSetting->bottom_nums_50, true) ?: [];
-        }
-
-        // 拦截规则：最热 10 码命中极限拦截（大乐透前区5码，热码交集黄金区间通常在 1-3 个）
-        if (!empty($topNums50)) {
-            $topIntersect50 = array_intersect($currentFronts, $topNums50);
-            $topCount50 = count($topIntersect50);
-            if ($topCount50 > 2) {
-                $baseScore -= 70;
-                $topStr = implode(',', $topIntersect50);
-                $reasons[] = "大样本热号拦截：当前组合包含最热号码 {$topCount50} 个({$topStr})，脱离了大乐透热号落位区间，冷热失衡风险极高。"; 
-            }
-        }
-
-        // 拦截规则：最冷 10 码防线拦截（大乐透前区5码，盲目追冷极易全军覆没，交集不宜超2个）
-        if (!empty($bottomNums50)) {
-            $bottomIntersect50 = array_intersect($currentFronts, $bottomNums50);
-            $bottomCount50 = count($bottomIntersect50);
-            if ($bottomCount50 < 1 || $bottomCount50 > 2) {
-                $baseScore -= 70;
-                $bottomStr = implode(',', $bottomIntersect50);
-                $reasons[] = "大样本冷号防线：当前组合包含冷码（含冷僻未出号）高达 {$bottomCount50} 个({$bottomStr})，极易形成盲区。";
-            }
-        }
-        // =========================================================================
-
         // 定义区间映射逻辑
         $getPositionSegment = function($pos) {
             if ($pos <= 99999) return 1;
             if ($pos <= 199999) return 2;
             if ($pos <= 299999) return 3;
-            return 4; 
+            return 4; // 300000 - 330000+
         };
 
         if ($preHistory) {
-            $currentSegment = $getPositionSegment($row->id); 
-            $lastSegment = $getPositionSegment($latestHistory->position); 
-            $preSegment = $getPositionSegment($preHistory->position);   
+            $currentSegment = $getPositionSegment($row->id); // 当前评分号所在的 basic_dlt id
+            $lastSegment = $getPositionSegment($latestHistory->position); // 上期历史
+            $preSegment = $getPositionSegment($preHistory->position);   // 上上期历史
 
+            // 如果最近两期在同一个区间，且当前号也在同一个区间
             if ($lastSegment === $preSegment && $currentSegment === $lastSegment) {
                 $baseScore -= 80;
                 $reasons[] = "号码连续落在一个ID区间（区间{$currentSegment}），评分下降。";
@@ -853,7 +618,7 @@ class DltController extends Controller
             $reasons[] = "和值个位（{$currentSumTail}）已连开 2 期，执行拦截。";
         }
 
-        // --- 核心逻辑 G：前三位奇偶形态拦截 ---
+        // --- 【新增】核心逻辑 G：前三位奇偶形态拦截 ---
         $getCurrentParityStr = function($c1, $c2, $c3) {
             return ($c1 % 2 === 0 ? '偶' : '奇') . ($c2 % 2 === 0 ? '偶' : '奇') . ($c3 % 2 === 0 ? '偶' : '奇');
         };
@@ -862,6 +627,7 @@ class DltController extends Controller
         $lastP = $getCurrentParityStr($latestHistory->front1, $latestHistory->front2, $latestHistory->front3);
 
         if ($currentP === $lastP) {
+            // 判断是否三连
             if ($preHistory) {
                 $preP = $getCurrentParityStr($preHistory->front1, $preHistory->front2, $preHistory->front3);
                 if ($currentP === $preP) {
@@ -931,6 +697,8 @@ class DltController extends Controller
             ]
         ]);
     }
+
+    
 
     /**
      * 获取双色球历史统计特征（如和值间隔）
