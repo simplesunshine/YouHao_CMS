@@ -1482,7 +1482,7 @@ class SsqController extends Controller
     }
 
     /**
-     * 🔥 升级版：双色球网络大单过滤打标 (含期号校验、单期频控与日志留痕)
+     * 🔥 升级版：双色球网络大单过滤打标 (含期号校验、单期频控、管理员特权与日志留痕)
      * 请求路径：POST /api/ssq/filter-dadan
      */
     public function filterDadan(Request $request)
@@ -1501,9 +1501,9 @@ class SsqController extends Controller
             return response()->json(['success' => false, 'message' => '过滤失败：大单红球数量必须在 10 - 16 个之间'], 400);
         }
 
-        // 2. ⚡【核心需求】检查当前用户在当前期号下是否已经操作过
+        // 2. ⚡【核心需求修改】非管理员才检查当前用户在当前期号下是否已经操作过
         $lockKey = "ssq_dadan_filter_user_{$user->id}_issue_{$issue}";
-        if (Cache::has($lockKey)) {
+        if ($user->is_admin != 1 && Cache::has($lockKey)) {
             return response()->json([
                 'code' => 403,
                 'success' => false,
@@ -1532,11 +1532,11 @@ class SsqController extends Controller
                     'updated_at' => now() 
                 ]);
 
-            // 5. ⚡【新增】将双色球本次提交的详细数据（含用户名）持久化到日志表
+            // 5. 将双色球本次提交的详细数据（含用户名）持久化到日志表
             DB::table('user_dadan_records')->insert([
                 'user_id'       => $user->id,
-                'username'      => $user->name ?? $user->username ?? '', // 自动适配模型中的用户名属性
-                'lottery_type'  => 'ssq', // 标识为双色球
+                'username'      => $user->name ?? $user->username ?? '', 
+                'lottery_type'  => 'ssq', 
                 'issue'         => $issue,
                 'numbers'       => implode(',', $numbers), 
                 'ball_count'    => count($numbers),
@@ -1548,13 +1548,15 @@ class SsqController extends Controller
 
             DB::commit();
 
-            // 6. ⚡【核心需求】过滤成功后，写入缓存锁定动作（缓存保存 3 天，确保覆盖单期开奖周期）
-            Cache::put($lockKey, true, now()->addDays(3));
+            // 6. ⚡【核心需求修改】过滤成功后，非管理员才写入缓存锁定动作
+            if ($user->is_admin != 1) {
+                Cache::put($lockKey, true, now()->addDays(3));
+            }
 
             return response()->json([
                 'code' => 200,
                 'success' => true,
-                'message' => '大单过滤成功！',
+                'message' => '大单过滤成功！' . ($user->is_admin == 1 ? '（管理员特权通道）' : ''),
                 'data' => [
                     'affectedRows' => $affectedRows
                 ]

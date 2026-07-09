@@ -130,4 +130,9 @@ Route::middleware(['auth:sanctum', 'update.last.login'])->group(function (){
     Route::post('lotto/analysis', [LottoAnalysisController::class, 'index']);
     Route::post('lotto/score', [LottoAnalysisController::class, 'score']);
 
+    // ⚡ 【新增】大单过滤历史记录统一接口
+    Route::get('/filter-history', [LottoRecordController::class, 'getFilterHistory']);
+    Route::get('/filter-history', [LottoRecordController::class, 'getFilterHistory']);
+
+
 });

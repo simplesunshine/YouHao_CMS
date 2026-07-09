@@ -90,4 +90,59 @@ class LottoRecordController extends Controller
             ]
         ]);
     }
+
+       /**
+     * 获取当前用户大单过滤历史记录（已剔除 IP 字段）
+     * 请求路径：GET /api/ssq/filter-history?lottery_type=ssq
+     */
+    public function getFilterHistory(Request $request)
+    {
+        $user = $request->user();
+        
+        // 1. 获取并校验彩种参数（只允许 ssq 或 dlt）
+        $lotteryType = $request->query('lottery_type');
+        if (!in_array($lotteryType, ['ssq', 'dlt'])) {
+            return response()->json(['success' => false, 'message' => '参数错误'], 400);
+        }
+
+        try {
+            // 2. 根据用户 ID 和彩种分页查询流水记录（⚡ 通过 select 显式指定字段，排除 ip）
+            $records = DB::table('user_dadan_records')
+                ->select([
+                    'id',
+                    'user_id',
+                    'username',
+                    'lottery_type',
+                    'issue',
+                    'numbers',
+                    'ball_count',
+                    'affected_rows',
+                    'created_at',
+                    'updated_at'
+                ])
+                ->where('user_id', $user->id)
+                ->where('lottery_type', $lotteryType)
+                ->orderBy('id', 'desc')
+                ->paginate(15); // 每页15条
+
+            return response()->json([
+                'code' => 200,
+                'success' => true,
+                'message' => '获取历史成功',
+                'data' => [
+                    'list'         => $records->items(),
+                    'current_page' => $records->currentPage(),
+                    'last_page'    => $records->lastPage(),
+                    'total'        => $records->total(),
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 500,
+                'success' => false,
+                'message' => '服务器繁忙，获取历史记录失败: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }
