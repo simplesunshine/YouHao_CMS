@@ -146,6 +146,13 @@ class SsqLottoHistoryController extends AdminController
                 }
                 
                 $updatePayload = [];
+                // 使用保存前生成的 front 字段 (格式如: "01,05,10,15,20")
+                $positionId = DB::table('basic_ssq')
+                    ->where('front', $data->front)
+                    ->value('id');
+                
+                $updatePayload['position'] = $positionId;
+
                 $updatePayload['sum_interval'] = $sumInterval; // 将计算结果放入更新负载
 
                 $prevData = DB::table('ssq_lotto_history')->where('id', '<', $currentId)->orderBy('id', 'desc')->first();
