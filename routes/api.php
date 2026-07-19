@@ -132,7 +132,7 @@ Route::middleware(['auth:sanctum', 'update.last.login'])->group(function (){
 
     // ⚡ 【新增】大单过滤历史记录统一接口
     Route::get('/filter-history', [LottoRecordController::class, 'getFilterHistory']);
-    Route::get('/filter-history', [LottoRecordController::class, 'getFilterHistory']);
+
 
     Route::get('/ssq/bluepool', [LotterySettingApiController::class, 'bluepool']);
 
