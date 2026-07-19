@@ -23,37 +23,6 @@ class LotterySettingController extends AdminController
             ]);
             $grid->column('issue', '期号');
             
-            // ----------- 局部新增开始 -----------
-            $grid->column('prepare_blue_nums', '预备蓝球池')->display(function ($v) {
-                if (empty($v)) return '<span class="text-warning">未配置</span>';
-                // 因为模型层加了 $casts，此时的 $v 如果是底层数组，或者被转成了数组，我们统一兼容处理下
-                $arr = is_array($v) ? $v : json_decode($v, true);
-                if (!is_array($arr) || empty($arr)) return '暂无';
-                
-                // 判断是一维数组(双色球)还是二维数组(大乐透)
-                if (isset($arr[0]) && is_array($arr[0])) {
-                    // 大乐透格式展示：[[1,2], [2,3]] -> [1,2], [2,3]
-                    $chunks = array_map(function($sub) { return '[' . implode(',', $sub) . ']'; }, $arr);
-                    return '<code>' . implode(' ', $chunks) . '</code>';
-                }
-                // 双色球格式展示
-                return '<code>' . implode(', ', $arr) . '</code>';
-            });
-            // ----------- 局部新增结束 -----------
-
-            // 新增：在列表页展示最热/最冷50期同轨迹号码
-            $grid->column('top_nums_50', '最热10码')->display(function ($v) {
-                if (empty($v)) return '暂无';
-                $arr = json_decode($v, true);
-                // 使用 implode 将数组转为 "01, 05, 12..." 格式，并用 Dcat 的 label 包装
-                return count($arr) > 0 ? '<code>' . implode(', ', $arr) . '</code>' : '暂无';
-            });
-
-            $grid->column('bottom_nums_50', '最冷10码')->display(function ($v) {
-                if (empty($v)) return '暂无';
-                $arr = json_decode($v, true);
-                return count($arr) > 0 ? '<code>' . implode(', ', $arr) . '</code>' : '暂无';
-            });
             $grid->column('enabled', '启用状态')->switch();
             $grid->column('created_at', '创建时间')->display(function ($v) {
                 return date('Y-m-d H:i', strtotime($v));
@@ -84,13 +53,7 @@ class LotterySettingController extends AdminController
             $form->text('issue', '期号')
                 ->placeholder('如：2026055')
                 ->required();
-            // ----------- 局部新增开始 -----------
-            // 建议直接用扩展性最好的 textarea，配合 placeholders 提示管理员格式
-            $form->textarea('prepare_blue_nums', '本期预备蓝球池')
-                ->placeholder("请输入标准的 JSON 数组格式：\n双色球示例: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n大乐透示例: [[1, 2], [2, 3], [4, 5]]")
-                ->rows(4)
-                ->help('前端请求获取号码时，将基于此处的蓝球池进行智能历史状态转移差集过滤。');
-            // ----------- 局部新增结束 -----------
+           
             $form->switch('enabled', '是否启用')->default(1);
 
             $form->divider('思路内容');
@@ -119,13 +82,6 @@ class LotterySettingController extends AdminController
             })->useTable();
 
             // --- 增加：在后台表单直接展示算好的同轨迹冷热号（只读展示） ---
-            $form->divider('历史50期同轨迹数据参考');
-            $form->display('top_nums_50', '最热10码')->with(function ($v) {
-                return $v ? implode(', ', json_decode($v, true)) : '暂无数据';
-            });
-            $form->display('bottom_nums_50', '最冷10码')->with(function ($v) {
-                return $v ? implode(', ', json_decode($v, true)) : '暂无数据';
-            });
 
             $form->display('created_at');
             $form->display('updated_at');

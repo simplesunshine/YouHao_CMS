@@ -134,7 +134,4 @@ Route::middleware(['auth:sanctum', 'update.last.login'])->group(function (){
     Route::get('/filter-history', [LottoRecordController::class, 'getFilterHistory']);
 
 
-    Route::get('/ssq/bluepool', [LotterySettingApiController::class, 'bluepool']);
-
-
 });

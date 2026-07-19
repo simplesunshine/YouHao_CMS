@@ -676,24 +676,9 @@ class SsqController extends Controller
         // =========================================================================
         // 🔥 【核心精准修复】：完全基于“专属首位历史子集”内部的状态转移过滤
         // =========================================================================
-        // 1. 获取本期思路表配置的预备蓝球池
-        $setting = DB::table('lottery_settings')
-            ->where('type', 1) // 双色球
-            ->where('issue', $issue)
-            ->where('enabled', 1)
-            ->first();
-
-        // 统一在外面把预备蓝球池洗成干净的数组，防止 array_diff 报错
-        if ($setting && !empty($setting->prepare_blue_nums)) {
-            $decoded = json_decode($setting->prepare_blue_nums, true);
-            $prepareBlues = is_array($decoded) 
-                ? $decoded 
-                : array_map('intval', explode(',', str_replace(['[', ']', '"'], '', $setting->prepare_blue_nums)));
-        } else {
-            $prepareBlues = range(1, 16);
-        }
-
-        // 2. 开始映射 5 注数据
+    
+        $prepareBlues = range(1, 16);
+        // 1. 开始映射 5 注数据
         $randomData = $results->map(function ($row) use ($last, $posCounts, $hotPairs, $type, $issue, $prepareBlues) {
             $currentFirstRed = (int)$row->code1; // 当前单注首位红球 (例如：1)
             
