@@ -120,7 +120,6 @@ class LottoRecordController extends Controller
                     'created_at',
                     'updated_at'
                 ])
-                ->where('user_id', $user->id)
                 ->where('lottery_type', $lotteryType)
                 ->orderBy('id', 'desc')
                 ->paginate(15); // 每页15条
