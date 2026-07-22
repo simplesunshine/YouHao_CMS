@@ -632,7 +632,7 @@ class DltController extends Controller
                 $preP = $getCurrentParityStr($preHistory->front1, $preHistory->front2, $preHistory->front3);
                 if ($currentP === $preP) {
                     $baseScore -= 90;
-                    $reasons[] = "前三位奇偶形态({$currentP})达成三连，风险极大。";
+                    $reasons[] = "前三位奇偶形态({$currentP})达成三连，下期概率逐步下降。";
                 } else {
                     $baseScore -= 10;
                     $reasons[] = "前三位奇偶形态({$currentP})与上期雷同，降低权重。";
@@ -681,7 +681,8 @@ class DltController extends Controller
         }
 
         if ($row->odd_count == 5 || $row->odd_count == 0) {
-            return response()->json(['success' => true, 'data' => ['weight' => 50, 'reason' => "极端奇偶形态，建议防御。"]]);
+            $baseScore -= 10;
+            $reasons[] = "全奇偶形态,评分下降10个点";
         }
 
         // --- 结果合成 ---
