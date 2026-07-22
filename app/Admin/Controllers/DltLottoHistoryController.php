@@ -37,6 +37,7 @@ class DltLottoHistoryController extends AdminController
             return $html;
         });
 
+        $grid->column('score', '评分');
         $grid->column('position', '位置');
 
         // 严格按 ID 倒序，确保时序逻辑直观
@@ -70,6 +71,7 @@ class DltLottoHistoryController extends AdminController
             $form->row(function ($show) {
                 $show->width(2)->number('back1', '后区1')->required();
                 $show->width(2)->number('back2', '后区2')->required();
+                $show->text('score', '评分')->required();
             });
 
             // 隐藏计算字段

@@ -12,7 +12,8 @@ class DltLottoHistory extends Model
     protected $fillable = [
         'issue', 'front1','front2','front3','front4','front5',
         'back1','back2', 'front_sum', 'span', 'weights',
-        'zone_ratio', 'odd_count', 'even_count', 'front_numbers', 'back_numbers'
+        'zone_ratio', 'odd_count', 'even_count', 'front_numbers', 'back_numbers',
+        'score'
     ];
 
     public $timestamps = false;

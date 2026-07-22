@@ -35,6 +35,7 @@ class SsqLottoHistoryController extends AdminController
             $val = str_pad($val, 2, '0', STR_PAD_LEFT);
             return "<span style='display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background-color:#409EFF;color:#fff;font-size:13px;font-weight:bold;'>{$val}</span>";
         });
+        $grid->column('score', '评分');
 
         // 按 ID 排序确保时序准确
         $grid->model()->orderByDesc('id');
@@ -75,6 +76,7 @@ class SsqLottoHistoryController extends AdminController
             $form->number('front5', '红球5')->min(1)->max(33)->required();
             $form->number('front6', '红球6')->min(1)->max(33)->required();
             $form->number('back', '蓝球')->min(1)->max(16)->required();
+            $form->number('score', '评分')->required();
 
             // 隐藏计算字段
             $form->hidden('front');
