@@ -74,7 +74,8 @@ class OpenResultController extends Controller
             ->map(fn($item)=>[
                 'issue'=>$item->issue,
                 'red'=>[$item->front1,$item->front2,$item->front3,$item->front4,$item->front5,$item->front6],
-                'blue'=>$item->back
+                'blue'=>$item->back,
+                'score' => $item->score
             ]);
 
         return response()->json(['success'=>true,'data'=>$data]);
@@ -113,6 +114,8 @@ class OpenResultController extends Controller
                 'red_80_miss_position' => $item->red_position_80_miss_json
                     ? json_decode($item->red_position_80_miss_json, true)
                     : new \stdClass(),
+                'score' => $item->score,
+
             ];
         });
 
@@ -157,6 +160,7 @@ class OpenResultController extends Controller
                 'red_80_miss_position' => $item->red_position_80_miss_json
                     ? json_decode($item->red_position_80_miss_json, true)
                     : new \stdClass(),
+                'score'=>$item->score    
             ];
         });
 
@@ -179,7 +183,8 @@ class OpenResultController extends Controller
             ->map(fn($item)=>[
                 'issue'=>$item->issue,
                 'front'=>[$item->front1,$item->front2,$item->front3,$item->front4,$item->front5],
-                'back'=>[$item->back1,$item->back2]
+                'back'=>[$item->back1,$item->back2],
+                'score'=>$item->score
             ]);
 
         return response()->json(['success'=>true,'data'=>$data]);
